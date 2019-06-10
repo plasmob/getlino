@@ -1,0 +1,2 @@
+# getlino
+Lino installer
