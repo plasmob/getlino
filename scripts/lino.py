@@ -8,7 +8,7 @@
 # INSTALLATION:
 #
 # $ wget https://raw.githubusercontent.com/lino-framework/getlino/master/scripts/lino.py
-# $ pip install argh ; python startsite.sh
+# $ pip install argh ; python lino.py
 
 from __future__ import print_function
 import os
