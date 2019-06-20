@@ -5,10 +5,6 @@
 # Create a new Lino production site on this server
 # This is meant as template for a script to be adapted to your system.
 # This is not meant to be used as is.
-# INSTALLATION:
-#
-# $ wget https://raw.githubusercontent.com/lino-framework/getlino/master/scripts/lino.py
-# $ pip install argh ; python lino.py
 
 from __future__ import print_function
 from __future__ import absolute_import
@@ -90,7 +86,3 @@ def main(mode='dev',
     os.system(command)
     os.system('cd {0}'.format(prjdir))
     os.system("cookiecutter https://github.com/lino-framework/cookiecutter-startsite")
-
-
-if __name__ == "__main__":
-    main()
