@@ -15,10 +15,13 @@ SETUP_INFO = dict(
     author_email='luc.saffre@gmail.com',
     url="http://lino-framework.org",
     license='BSD License',
+    packages=[
+        'lino_getlino',
+    ],
     package_dir={'lino_getlino': 'lino_getlino'},
     entry_points={
         'console_scripts': [
-            'lino_getlino = scripts.lino.__main__:main',
+            'getlino = lino_getlino.scripts.lino:main',
         ]
     },
     classifiers="""\

@@ -11,6 +11,7 @@
 # $ pip install argh ; python lino.py
 
 from __future__ import print_function
+from __future__ import absolute_import
 import os
 import subprocess
 
@@ -66,7 +67,7 @@ def main(mode='dev',
 
     if not os.path.exists(projects_root):
         print("Oops, {0} does not exist.".format(projects_root))
-        return
+        return ''
 
     prjdir=os.path.join(projects_root,prjname)
     if os.path.exists(prjdir):
@@ -89,3 +90,7 @@ def main(mode='dev',
     os.system(command)
     os.system('cd {0}'.format(prjdir))
     os.system("cookiecutter https://github.com/lino-framework/cookiecutter-startsite")
+
+
+if __name__ == "__main__":
+    main()
