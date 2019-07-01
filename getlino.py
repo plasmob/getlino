@@ -17,6 +17,7 @@ CONFIG_FILE = os.path.expanduser('~/.getlino.conf')
 virtualenvs = '~./virtualenv'
 config = configparser.ConfigParser()
 
+
 def create_virtualenv(envname):
     virtualenvs_folder = os.path.expanduser(virtualenvs)
     venv_dir = os.path.join(virtualenvs_folder, envname)
@@ -104,13 +105,12 @@ def setup(envdir='env',
     config['LINO']['envdir'] = envdir
     config['LINO']['arch_dir'] = arch_dir
 
-
     prjdir = os.path.join(projects_root, envdir)
     install('virtualenv')
     create_virtualenv(envdir)
     install_os_requirements()
-    sys_executable = os.path.join(os.path.expanduser(virtualenvs), envdir)
-    install('cookiecutter setuptools uwsgi', sys_executable=sys_executable)
+    # sys_executable = os.path.join(os.path.expanduser(virtualenvs), envdir)
+    # install('cookiecutter setuptools uwsgi', sys_executable=sys_executable)
 
     with open(CONFIG_FILE, 'w') as configfile:
         config.write(configfile)
