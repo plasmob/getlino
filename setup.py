@@ -12,7 +12,7 @@ SETUP_INFO = dict(
     author='Luc Saffre',
     author_email='luc.saffre@gmail.com',
     url="http://lino-framework.org",
-    license='BSD License',
+    license='BSD-2-Clause',
     scripts=['getlino.py'],
     classifiers="""\
 Programming Language :: Python
