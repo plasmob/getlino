@@ -3,7 +3,7 @@ from setuptools import setup
 SETUP_INFO = dict(
     name='getlino',
     version='19.6.1',
-    install_requires=['argh'],
+    install_requires=['argh','virtualenv','cookiecutter'],
     test_suite='tests',
     description="Get Lino application",
     long_description=u"""
