@@ -5,6 +5,6 @@ Lino installer
 
 pip install getlino
 
-#Use
+# Use
 
 getlino.py setup

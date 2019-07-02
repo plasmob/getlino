@@ -11,7 +11,7 @@ from __future__ import absolute_import
 import os, sys, argh
 import configparser
 import virtualenv
-import subprocess
+import subprocess, cookiecutter
 
 CONFIG_FILE = os.path.expanduser('~/.getlino.conf')
 virtualenvs = '~./virtualenv'
@@ -69,6 +69,21 @@ def install(packages, sys_executable=None):
         subprocess.call([sys.executable, "-m", "pip", "install", packages])
 
 
+def install_postgresql(envdir):
+    command = """
+    sudo apt install postgresql postgresql-contrib 
+    """
+    os.system(command)
+    install("psycopg2-binary", sys_executable=envdir)
+
+
+def install_mysql(envdir):
+    command = """
+    sudo apt install mysql-server libmysqlclient-dev python-dev libffi-dev libssl-dev
+    """
+    os.system(command)
+    install("mysqlclient", sys_executable=envdir)
+
 # @dispatch_command
 # @arg('-mode',help="Prod or Dev mode")
 # @arg('-projects_root',  default='/usr/local/lino',help="The path of the main project folder")
@@ -81,6 +96,7 @@ def install(packages, sys_executable=None):
 # @arg('-usergroup', help="The name of the usergroup")
 def setup(envdir='env',
           projects_root='/usr/local/lino',
+          projects_prefix='prod_sites',
           arch_dir='/var/backups/lino',
           ):
     """Setup Lino framework and its dependency on a fresh linux machine.
@@ -95,32 +111,41 @@ def setup(envdir='env',
         print("Creating lino backup folder {} ...".format(arch_dir))
         os.system("sudo mkdir {}".format(arch_dir))
 
-    if not os.path.exists(projects_root):
-        print("Creating lino projects root {} ...".format(projects_root))
-        os.system("sudo mkdir {}".format(projects_root))
+    if not os.path.exists(os.path.join(projects_root, projects_prefix)):
+        print("Creating lino projects root {} ...".format(os.path.join(projects_root, projects_prefix)))
+        os.system("sudo mkdir {}".format(os.path.join(projects_root, projects_prefix)))
+
+    print('What database engine would use ?')
+    print('1) postgresql')
+    print('2) mysql')
+    answer = input()
+    if answer in ['1', 1]:
+        install_postgresql(envdir)
+        db_engine = 'postgresql'
+    elif answer in ['2', 2]:
+        install_mysql(envdir)
+        db_engine = 'mysql'
+    else:
+        db_engine = ''
 
     config.read(CONFIG_FILE)
     config['LINO'] = {}
     config['LINO']['projects_root'] = projects_root
     config['LINO']['envdir'] = envdir
     config['LINO']['arch_dir'] = arch_dir
+    config['LINO']['projects_prefix'] = projects_prefix
+    config['LINO']['db_engine'] = db_engine
 
-    prjdir = os.path.join(projects_root, envdir)
     install('virtualenv')
     create_virtualenv(envdir)
     install_os_requirements()
-    # sys_executable = os.path.join(os.path.expanduser(virtualenvs), envdir)
-    # install('cookiecutter setuptools uwsgi', sys_executable=sys_executable)
 
     with open(CONFIG_FILE, 'w') as configfile:
         config.write(configfile)
-    return "Lino installating completed."
+    return "Lino installation completed."
 
 
 def startsite(mode='dev',
-              projects_root='/usr/local/lino',
-              projects_prefix='prod_sites',
-              arch_dir='/var/backups/lino',
               envdir='env', reposdir='repositories',
               usergroup='www-data',
               prjname='prjname',
@@ -138,6 +163,9 @@ def startsite(mode='dev',
     :param appname:
     :return:
     """
+    extra_context = {
+
+    }
     out = subprocess.Popen(['groups | grep ' + usergroup], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True)
     stdout, stderr = out.communicate()
     if str(stdout):
@@ -149,14 +177,6 @@ def startsite(mode='dev',
         print("echo sudo adduser `whoami` {0}".format(usergroup))
         return
 
-    if not os.path.exists(projects_root):
-        print("Oops, {0} does not exist.".format(projects_root))
-        return ''
-
-    prjdir = os.path.join(projects_root, prjname)
-    if os.path.exists(prjdir):
-        print("Oops, a directory {0} exists already. Delete it yourself if you dare!".format(prjdir))
-        return
     print('Create a new production site into {0} using Lino {1} ...'.format(prjdir, appname))
     print('Are you sure? [y/N] ')
     answer = input()
@@ -166,7 +186,7 @@ def startsite(mode='dev',
     os.system('mkdir {0}'.format(prjdir))
     os.system('cd {0}'.format(prjdir))
     install('virtualenv')
-    create_virtualenv(prjdir, envdir)
+    create_virtualenv(envdir)
     sys_executable = os.path.join(os.path.expanduser(prjdir), envdir)
     install('cookiecutter', sys_executable=sys_executable)
     print(sys_executable)
@@ -174,10 +194,13 @@ def startsite(mode='dev',
     os.system(command)
     os.system('cd {0}'.format(prjdir))
     os.system("cookiecutter https://github.com/lino-framework/cookiecutter-startsite")
+    cookiecutter.main(
+        "git@github.com:lino-framework/cookiecutter-startsite.git",
+        no_input=True, extra_context=extra_context)
 
 
 parser = argh.ArghParser()
-parser.add_commands([startsite, setup])
+parser.add_commands([setup, startsite])
 
 if __name__ == '__main__':
     parser.dispatch()
