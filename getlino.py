@@ -15,7 +15,7 @@ import click
 import subprocess, cookiecutter
 
 CONFIG_FILE = os.path.expanduser('~/.getlino.conf')
-virtualenvs = '~./virtualenv'
+virtualenvs = '~/.virtualenv'
 config = configparser.ConfigParser()
 
 libreoffice_conf = """
@@ -49,6 +49,7 @@ def install_os_requirements():
     sudo apt-get upgrade -y && \ 	
     sudo apt-get install -y \
 	git \
+	subversion \
 	python3 \
 	python3-dev \
 	python3-setuptools \
@@ -185,6 +186,9 @@ def setup(envdir='env',
 
     install_os_requirements()
     create_libreoffice_conf()
+    install("uwsgi", sys_executable=full_envdir)
+    install("cookiecutter", sys_executable=full_envdir)
+    install("svn+https://svn.forge.pallavi.be/appy-dev/dev1#egg=appy", sys_executable=full_envdir)
 
     with open(CONFIG_FILE, 'w') as configfile:
         config.write(configfile)
@@ -192,26 +196,110 @@ def setup(envdir='env',
 
 
 def startsite(mode='dev',
-              envdir='env', reposdir='repositories',
+              reposdir='repositories',
               usergroup='www-data',
               prjname='prjname',
-              appname='appname'):
+              appname='appname',
+              app_git_repo='https://github.com/lino-framework/noi',
+              app_package='lino_noi',
+              app_settings='lino_noi.lib.noi.settings',
+              server_url="https://myprjname.lino-framework.org",
+              admin_full_name='Joe Dow',
+              admin_email='joe@example.com',
+              db_user='lino',
+              db_password='1234',
+              no_input=False):
     """
     Create a new Lino site.
-    :param mode:
-    :param projects_root:
-    :param projects_prefix:
-    :param arch_dir:
-    :param envdir:
-    :param reposdir:
-    :param usergroup:
-    :param prjname:
-    :param appname:
-    :return:
     """
-    extra_context = {
+    config.read(CONFIG_FILE)
+    prjdir = config['LINO']['projects_root']
+    envdir = config['LINO']['envdir']
 
+    if not no_input:
+        if not click.confirm("Project name : {} ".format(prjname), default=True):
+            print("Project name :")
+            answer = input()
+            if len(answer):
+                prjname = answer
+
+        if not click.confirm("Application name : {} ".format(appname), default=True):
+            print("Application name :")
+            answer = input()
+            if len(answer):
+                appname = answer
+
+        if not click.confirm("Lino application name : {} ".format(app_package), default=True):
+            print("Lino application name :")
+            answer = input()
+            if len(answer):
+                app_package = answer
+
+        if not click.confirm("Application git repo  : {} ".format(app_git_repo), default=True):
+            print("Application git repo :")
+            answer = input()
+            if len(answer):
+                app_git_repo = answer
+
+        if not click.confirm("Application setting  : {} ".format(app_settings), default=True):
+            print("Application setting :")
+            answer = input()
+            if len(answer):
+                app_settings = answer
+
+        if not click.confirm("Server URL  : {} ".format(server_url), default=True):
+            print("Server URL :")
+            answer = input()
+            if len(answer):
+                server_url = answer
+
+        if not click.confirm("Admin full name  : {} ".format(admin_full_name), default=True):
+            print("Admin full name :")
+            answer = input()
+            if len(answer):
+                admin_full_name = answer
+
+        if not click.confirm("Admin email  : {} ".format(admin_email), default=True):
+            print("Admin email :")
+            answer = input()
+            if len(answer):
+                admin_email = answer
+
+        if not click.confirm("db user  : {} ".format(db_user), default=True):
+            print("db user :")
+            answer = input()
+            if len(answer):
+                db_user = answer
+
+        if not click.confirm("db password  : {} ".format(db_password), default=True):
+            print("db password :")
+            answer = input()
+            if len(answer):
+                db_password = answer
+
+    extra_context = {
+        "prjname": prjname,
+        "appname": appname,
+        "app_git_repo": app_git_repo,
+        "app_package": app_package,
+        "app_settings": app_settings,
+        "use_app_dev": "y",
+        "use_lino_dev": "n",
+        "server_url": server_url,
+        "admin_full_name": admin_full_name,
+        "admin_email": admin_email,
+        "db_engine": config['LINO']['db_engine'],
+        "db_user": db_user,
+        "db_password": db_password,
+        "db_name": prjname,
+        "usergroup": usergroup
     }
+
+    # Database
+    print("Database user :")
+    answer = input()
+    if len(answer):
+        arch_dir = answer
     out = subprocess.Popen(['groups | grep ' + usergroup], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True)
     stdout, stderr = out.communicate()
     if str(stdout):
