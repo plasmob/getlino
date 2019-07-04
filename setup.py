@@ -2,8 +2,8 @@ from setuptools import setup
 
 SETUP_INFO = dict(
     name='getlino',
-    version='19.7.0',
-    install_requires=['argh', 'virtualenv', 'cookiecutter', 'setuptools', 'uwsgi'],
+    version='19.7.1',
+    install_requires=['click', 'argh', 'virtualenv', 'cookiecutter', 'setuptools', 'uwsgi'],
     test_suite='tests',
     description="Get Lino application",
     long_description=u"""
