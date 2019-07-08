@@ -14,7 +14,7 @@ import virtualenv
 import click
 import subprocess, cookiecutter
 
-CONFIG_FILE = os.path.expanduser('~/.getlino.conf')
+CONFIG_FILE = '/etc/getlino.conf'
 virtualenvs = '~/.virtualenv'
 config = configparser.ConfigParser()
 
@@ -112,22 +112,19 @@ def install_mysql(envdir):
 # @arg('-envdir',  help="The name of the python virtualenv")
 # @arg('-reposdir', help="The name of the repositories")
 # @arg('-usergroup', help="The name of the usergroup")
-def setup(envdir='env',
-          projects_root='/opt/lino',
+def setup(projects_root='/opt/lino',
           projects_prefix='prod_sites',
           arch_dir='/var/backups/lino',
-          db_engine='sqlite',
+          conffile='/etc/getlino.conf',
           no_input=False
           ):
     """Setup Lino framework and its dependency on a fresh linux machine.
     """
 
-    if not os.path.exists(CONFIG_FILE):
-        print("Creating lino config file at {} ...".format(CONFIG_FILE))
-        config_folder_path = os.path.dirname(CONFIG_FILE)
+    if not os.path.exists(conffile):
+        print("Creating lino config file at {} ...".format(conffile))
+        config_folder_path = os.path.dirname(conffile)
         os.system("sudo mkdir {}".format(config_folder_path))
-
-    full_envdir = os.path.join(os.path.expanduser(virtualenvs), envdir)
 
     if not no_input:
         if not click.confirm("Backup folder : {} ".format(arch_dir), default=True):
@@ -154,49 +151,26 @@ def setup(envdir='env',
             os.system("sudo mkdir {}".format(projects_root))
             os.system("sudo mkdir {}".format(os.path.join(projects_root, projects_prefix)))
 
-        if not click.confirm("virtualenv directory : {}".format(full_envdir), default=True):
-            print("virtualenv directory")
-            answer = input()
-            if len(answer):
-                full_envdir = answer
 
-    install('virtualenv')
-    create_virtualenv(full_envdir)
-
-    if not no_input:
-        print('What database engine would use ?')
-        print('1) postgresql')
-        print('2) mysql')
-        print('3) sqlite')
-        answer = input()
-        if answer in ['1', 1]:
-            install_postgresql(full_envdir)
-            db_engine = 'postgresql'
-        elif answer in ['2', 2]:
-            install_mysql(full_envdir)
-            db_engine = 'mysql'
-
-    config.read(CONFIG_FILE)
+    config.read(conffile)
     config['LINO'] = {}
     config['LINO']['projects_root'] = projects_root
-    config['LINO']['envdir'] = envdir
+    # config['LINO']['envdir'] = envdir
     config['LINO']['arch_dir'] = arch_dir
     config['LINO']['projects_prefix'] = projects_prefix
-    config['LINO']['db_engine'] = db_engine
+    # config['LINO']['db_engine'] = db_engine
 
     install_os_requirements()
     create_libreoffice_conf()
-    install("uwsgi", sys_executable=full_envdir)
-    install("cookiecutter", sys_executable=full_envdir)
-    install("svn+https://svn.forge.pallavi.be/appy-dev/dev1#egg=appy", sys_executable=full_envdir)
 
-    with open(CONFIG_FILE, 'w') as configfile:
+    with open(conffile, 'w') as configfile:
         config.write(configfile)
     return "Lino installation completed."
 
 
 def startsite(mode='dev',
               reposdir='repositories',
+              envdir='env',
               usergroup='www-data',
               prjname='prjname',
               appname='appname',
@@ -206,17 +180,26 @@ def startsite(mode='dev',
               server_url="https://myprjname.lino-framework.org",
               admin_full_name='Joe Dow',
               admin_email='joe@example.com',
+              db_engine='sqlite',
               db_user='lino',
               db_password='1234',
+              conffile='/etc/getlino.conf',
               no_input=False):
     """
     Create a new Lino site.
     """
-    config.read(CONFIG_FILE)
+    config.read(conffile)
     prjdir = config['LINO']['projects_root']
-    envdir = config['LINO']['envdir']
+    full_envdir = os.path.join(os.path.expanduser(virtualenvs), envdir)
+    # envdir = config['LINO']['envdir']
 
     if not no_input:
+        if not click.confirm("virtualenv directory : {}".format(full_envdir), default=True):
+            print("virtualenv directory")
+            answer = input()
+            if len(answer):
+                full_envdir = answer
+
         if not click.confirm("Project name : {} ".format(prjname), default=True):
             print("Project name :")
             answer = input()
@@ -265,6 +248,18 @@ def startsite(mode='dev',
             if len(answer):
                 admin_email = answer
 
+        print('What database engine would use ?')
+        print('1) postgresql')
+        print('2) mysql')
+        print('3) sqlite')
+        answer = input()
+        if answer in ['1', 1]:
+            install_postgresql(full_envdir)
+            db_engine = 'postgresql'
+        elif answer in ['2', 2]:
+            install_mysql(full_envdir)
+            db_engine = 'mysql'
+
         if not click.confirm("db user  : {} ".format(db_user), default=True):
             print("db user :")
             answer = input()
@@ -277,6 +272,12 @@ def startsite(mode='dev',
             if len(answer):
                 db_password = answer
 
+    install('virtualenv')
+    create_virtualenv(full_envdir)
+    install("uwsgi", sys_executable=full_envdir)
+    # install("cookiecutter", sys_executable=full_envdir)
+    install("svn+https://svn.forge.pallavi.be/appy-dev/dev1#egg=appy", sys_executable=full_envdir)
+
     extra_context = {
         "prjname": prjname,
         "appname": appname,
@@ -288,7 +289,7 @@ def startsite(mode='dev',
         "server_url": server_url,
         "admin_full_name": admin_full_name,
         "admin_email": admin_email,
-        "db_engine": config['LINO']['db_engine'],
+        "db_engine": db_engine,
         "db_user": db_user,
         "db_password": db_password,
         "db_name": prjname,
