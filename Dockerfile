@@ -12,5 +12,23 @@ RUN mkdir /getlino
 # Set the working directory to /getlino
 WORKDIR /getlino
 
-RUN pip3 install getlino
-RUN getlino.py setup -n
+ADD getlino.py /getlino/
+
+RUN apt-get update && apt-get install -y --no-install-recommends apt-utils
+
+# Install sudo package.
+RUN apt-get install sudo
+
+RUN adduser --disabled-password --gecos '' docker
+RUN adduser docker sudo
+RUN echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+
+USER docker
+
+# this is where I was running into problems with the other approaches
+RUN sudo apt-get update 
+
+#RUN pip3 install getlino
+RUN sudo pip3 install click argh virtualenv cookiecutter setuptools uwsgi
+RUN sudo python getlino.py setup -n
+RUN sudo python getlino.py startsite -n
