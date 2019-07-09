@@ -12,10 +12,11 @@ import os, sys, argh
 import configparser
 import virtualenv
 import click
-import subprocess, cookiecutter
+import subprocess
+from cookiecutter.main import cookiecutter
 
 CONFIG_FILE = '/etc/getlino.conf'
-virtualenvs = '~/.virtualenv'
+virtualenvs = '/opt/lino'
 config = configparser.ConfigParser()
 
 libreoffice_conf = """
@@ -28,10 +29,10 @@ libreoffice_conf_path = '/etc/supervisor/conf.d/libreoffice.conf'
 
 
 def create_virtualenv(envname):
-    virtualenvs_folder = os.path.expanduser(virtualenvs)
-    venv_dir = os.path.join(virtualenvs_folder, envname)
+    #virtualenvs_folder = os.path.expanduser(virtualenvs)
+    venv_dir = os.path.join(virtualenvs, envname)
     virtualenv.create_environment(venv_dir)
-    command = ". {}/{}/bin/activate".format(virtualenvs_folder, envname)
+    command = ". {}/{}/bin/activate".format(virtualenvs, envname)
     os.system(command)
 
 
@@ -190,7 +191,7 @@ def startsite(mode='dev',
     """
     config.read(conffile)
     prjdir = config['LINO']['projects_root']
-    full_envdir = os.path.join(os.path.expanduser(virtualenvs), envdir)
+    full_envdir = os.path.join(virtualenvs, envdir)
     # envdir = config['LINO']['envdir']
 
     if not no_input:
@@ -296,11 +297,6 @@ def startsite(mode='dev',
         "usergroup": usergroup
     }
 
-    # Database
-    print("Database user :")
-    answer = input()
-    if len(answer):
-        arch_dir = answer
     out = subprocess.Popen(['groups | grep ' + usergroup], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True)
     stdout, stderr = out.communicate()
     if str(stdout):
@@ -313,10 +309,11 @@ def startsite(mode='dev',
         return
 
     print('Create a new production site into {0} using Lino {1} ...'.format(prjdir, appname))
-    print('Are you sure? [y/N] ')
-    answer = input()
-    if answer not in ['Yes', 'y', 'Y']:
-        return
+    if not no_input:
+        print('Are you sure? [y/N] ')
+        answer = input()
+        if answer not in ['Yes', 'y', 'Y']:
+            return
 
     os.system('mkdir {0}'.format(prjdir))
     os.system('cd {0}'.format(prjdir))
@@ -328,8 +325,9 @@ def startsite(mode='dev',
     command = ". {}/bin/activate".format(sys_executable)
     os.system(command)
     os.system('cd {0}'.format(prjdir))
-    os.system("cookiecutter https://github.com/lino-framework/cookiecutter-startsite")
-    cookiecutter.main(
+    #os.system("cookiecutter https://github.com/lino-framework/cookiecutter-startsite")
+    
+    cookiecutter(
         "git@github.com:lino-framework/cookiecutter-startsite.git",
         no_input=True, extra_context=extra_context)
 
