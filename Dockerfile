@@ -13,6 +13,8 @@ RUN mkdir /getlino
 WORKDIR /getlino
 
 ADD getlino.py /getlino/
+# For testing
+#COPY cookiecutter-startsite /usr/local/cookiecutter-startsite
 
 RUN apt-get update && apt-get install -y --no-install-recommends apt-utils
 

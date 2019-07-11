@@ -325,11 +325,15 @@ def startsite(mode='dev',
     command = ". {}/bin/activate".format(sys_executable)
     os.system(command)
     os.system('cd {0}'.format(prjdir))
-    #os.system("cookiecutter https://github.com/lino-framework/cookiecutter-startsite")
+    # os.system("cookiecutter https://github.com/lino-framework/cookiecutter-startsite")
     
     cookiecutter(
-        "git@github.com:lino-framework/cookiecutter-startsite.git",
+        "https://github.com/lino-framework/cookiecutter-startsite",
         no_input=True, extra_context=extra_context)
+    #Testing 
+    #cookiecutter(
+    #    "/usr/local/cookiecutter-startsite",
+    #    no_input=True, extra_context=extra_context)
 
 
 parser = argh.ArghParser()

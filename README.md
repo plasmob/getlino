@@ -8,8 +8,8 @@ docker build -t getlino .
 
 # Install
 
-pip install getlino
+sudo pip install getlino
 
 # Use
 
-getlino.py setup
+sudo getlino.py setup
