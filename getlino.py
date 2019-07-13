@@ -113,7 +113,7 @@ def install_mysql(envdir):
 # @arg('-envdir',  help="The name of the python virtualenv")
 # @arg('-reposdir', help="The name of the repositories")
 # @arg('-usergroup', help="The name of the usergroup")
-def setup(projects_root='/opt/lino',
+def setup(projects_root='/usr/local/lino',
           projects_prefix='prod_sites',
           arch_dir='/var/backups/lino',
           conffile='/etc/getlino.conf',
@@ -190,7 +190,7 @@ def startsite(mode='dev',
     Create a new Lino site.
     """
     config.read(conffile)
-    prjdir = config['LINO']['projects_root']
+    projects_root = config['LINO']['projects_root']
     full_envdir = os.path.join(virtualenvs, envdir)
     # envdir = config['LINO']['envdir']
 
@@ -281,6 +281,7 @@ def startsite(mode='dev',
 
     extra_context = {
         "prjname": prjname,
+        "projects_root":projects_root,
         "appname": appname,
         "app_git_repo": app_git_repo,
         "app_package": app_package,
@@ -315,16 +316,16 @@ def startsite(mode='dev',
         if answer not in ['Yes', 'y', 'Y']:
             return
 
-    os.system('mkdir {0}'.format(prjdir))
-    os.system('cd {0}'.format(prjdir))
+    os.system('mkdir {0}'.format(projects_root))
+    os.system('cd {0}'.format(projects_root))
     install('virtualenv')
     create_virtualenv(envdir)
-    sys_executable = os.path.join(os.path.expanduser(prjdir), envdir)
+    sys_executable = os.path.join(os.path.expanduser(projects_root), envdir)
     install('cookiecutter', sys_executable=sys_executable)
     print(sys_executable)
     command = ". {}/bin/activate".format(sys_executable)
     os.system(command)
-    os.system('cd {0}'.format(prjdir))
+    os.system('cd {0}'.format(projects_root))
     # os.system("cookiecutter https://github.com/lino-framework/cookiecutter-startsite")
     
     cookiecutter(
