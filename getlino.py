@@ -282,6 +282,7 @@ def startsite(mode='dev',
     extra_context = {
         "prjname": prjname,
         "projects_root":projects_root,
+        "reposdir":reposdir,
         "appname": appname,
         "app_git_repo": app_git_repo,
         "app_package": app_package,
