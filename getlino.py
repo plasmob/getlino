@@ -15,7 +15,6 @@ import click
 import subprocess
 from cookiecutter.main import cookiecutter
 
-CONFIG_FILE = '/etc/getlino.conf'
 virtualenvs = '/opt/lino'
 config = configparser.ConfigParser()
 
@@ -125,7 +124,8 @@ def setup(projects_root='/usr/local/lino',
     if not os.path.exists(conffile):
         print("Creating lino config file at {} ...".format(conffile))
         config_folder_path = os.path.dirname(conffile)
-        os.system("sudo mkdir {}".format(config_folder_path))
+        if not os.path.exists(config_folder_path):
+            os.makedirs(config_folder_path)
 
     if not no_input:
         if not click.confirm("Backup folder : {} ".format(arch_dir), default=True):
@@ -173,7 +173,7 @@ def startsite(mode='dev',
               reposdir='repositories',
               envdir='env',
               usergroup='www-data',
-              prjname='prjname',
+              prjname='prjname1',
               appname='appname',
               app_git_repo='https://github.com/lino-framework/noi',
               app_package='lino_noi',
@@ -191,7 +191,6 @@ def startsite(mode='dev',
     """
     config.read(conffile)
     projects_root = config['LINO']['projects_root']
-    full_envdir = os.path.join(virtualenvs, envdir)
     # envdir = config['LINO']['envdir']
 
     if not no_input:
@@ -274,6 +273,7 @@ def startsite(mode='dev',
                 db_password = answer
 
     install('virtualenv')
+    full_envdir = os.path.join(projects_root,prjname, envdir)
     create_virtualenv(full_envdir)
     install("uwsgi", sys_executable=full_envdir)
     # install("cookiecutter", sys_executable=full_envdir)
@@ -310,7 +310,7 @@ def startsite(mode='dev',
         print("echo sudo adduser `whoami` {0}".format(usergroup))
         return
 
-    print('Create a new production site into {0} using Lino {1} ...'.format(prjdir, appname))
+    print('Create a new production site into {0} using Lino {1} ...'.format(projects_root, appname))
     if not no_input:
         print('Are you sure? [y/N] ')
         answer = input()
@@ -319,23 +319,21 @@ def startsite(mode='dev',
 
     os.system('mkdir {0}'.format(projects_root))
     os.system('cd {0}'.format(projects_root))
-    install('virtualenv')
-    create_virtualenv(envdir)
-    sys_executable = os.path.join(os.path.expanduser(projects_root), envdir)
-    install('cookiecutter', sys_executable=sys_executable)
-    print(sys_executable)
-    command = ". {}/bin/activate".format(sys_executable)
+    #sys_executable = os.path.join(os.path.expanduser(projects_root), envdir)
+    install('cookiecutter', sys_executable=full_envdir)
+    print(full_envdir)
+    command = ". {}/bin/activate".format(full_envdir)
     os.system(command)
     os.system('cd {0}'.format(projects_root))
     # os.system("cookiecutter https://github.com/lino-framework/cookiecutter-startsite")
     
-    cookiecutter(
-        "https://github.com/lino-framework/cookiecutter-startsite",
-        no_input=True, extra_context=extra_context)
-    #Testing 
     #cookiecutter(
-    #    "/usr/local/cookiecutter-startsite",
+    #    "https://github.com/lino-framework/cookiecutter-startsite",
     #    no_input=True, extra_context=extra_context)
+    #Testing 
+    cookiecutter(
+        "/media/khchine5/011113a1-84fe-48ef-826d-4c81de9456731/home/khchine5/PycharmProjects/lino/cookiecutter-startsite",
+        no_input=True, extra_context=extra_context)
 
 
 parser = argh.ArghParser()
