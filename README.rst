@@ -11,7 +11,7 @@ production server::
 
 First you will create a system-wide getlino config file::
 
-    $ sudo getlino.py config
+    $ sudo getlino.py configure
 
 
 Next step is to install system-wide dependencies according to your getlino

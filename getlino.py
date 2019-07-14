@@ -11,27 +11,80 @@ import subprocess
 import collections
 from cookiecutter.main import cookiecutter
 
-
-CONF_FILES = ['/etc/getlino/getlino.conf', os.path.expanduser('~/.getlino.conf')]
-CONFIG = configparser.ConfigParser()
-FOUND_CONFIG_FILES = CONFIG.read(CONF_FILES)
-DEFAULTSECTION = CONFIG.default_section
-
-
 DbEngine = collections.namedtuple(
     'DbEngine', ('name', 'apt_packages', 'python_packages'))
 KnownApp = collections.namedtuple(
     'KnownApp', ('name', 'settings_module', 'git_repo'))
+ConfVar = collections.namedtuple(
+    'ConfVar', ('name', 'default', 'help', 'type'))
 
 
-# virtualenvs = '/opt/lino'
-
-libreoffice_conf_path = '/etc/supervisor/conf.d/libreoffice.conf'
-libreoffice_conf = """
+LIBREOFFICE_supervisor_dir = """
 [program:libreoffice]
-command=libreoffice --accept="socket,host=127.0.0.1,port=8100;urp;" --nologo --headless --nofirststartwizard
+command = libreoffice --accept="socket,host=127.0.0.1,port=8100;urp;" --nologo --headless --nofirststartwizard
 user = root
 """
+
+
+DB_ENGINES = [
+    DbEngine('pgsql', "postgresql postgresql-contrib", "psycopg2-binary"),
+    DbEngine('mysql', "mysql-server libmysqlclient-dev python-dev libffi-dev libssl-dev", "mysqlclient"),
+]
+
+KNOWN_APPS = [
+  KnownApp("noi", "lino_noi.lib.noi.settings", "https://github.com/lino-framework/noi"),
+  KnownApp("voga", "lino_voga.lib.voga.settings", "https://github.com/lino-framework/voga"),
+  KnownApp("cosi", "lino_cosi.lib.cosi.settings", "https://github.com/lino-framework/cosi"),
+  KnownApp("avanti", "lino_avanti.lib.avanti.settings", "https://github.com/lino-framework/avanti"),
+  KnownApp("weleup", "lino_weleup.lib.weleup.settings", "https://github.com/lino-framework/weleup"),
+  KnownApp("welcht", "lino_voga.lib.voga.settings", "https://github.com/lino-framework/welcht"),
+  KnownApp("min2", "lino_book.projects.min2.settings", "https://github.com/lino-framework/book"),
+]
+
+APPNAMES = [a.name for a in KNOWN_APPS]
+
+CONF_FILES = ['/etc/getlino/getlino.conf', os.path.expanduser('~/.getlino.conf')]
+CONFIG = configparser.ConfigParser()
+FOUND_CONFIG_FILES = CONFIG.read(CONF_FILES)
+DEFAULTSECTION = CONFIG[CONFIG.default_section]
+
+
+CONFVARS = []
+
+def add(spec, default, help, type=None):
+
+    kwargs = dict()
+    kwargs.update(help=help)
+    if type is not None:
+        kwargs.update(type=type)
+    o = click.Option(["--"+spec], **kwargs)
+    o.default = DEFAULTSECTION.get(o.name, default)
+    CONFVARS.append(o)
+
+# must be same order as in signature of configure command below
+add('projects_root', '/usr/local/lino', 'Base directory for Lino sites')
+add('backups_root', '/var/backups/lino', 'Base directory for backups')
+add('usergroup', 'www-data', "User group for files to be shared with the web server")
+add('supervisor_dir', '/etc/supervisor/conf.d', "Directory for supervisor config files")
+add('db_engine', 'mysql', "Default database engine for new sites.", click.Choice([e.name for e in DB_ENGINES]))
+add('repos_dir', 'repositories', "Default repositories directory for new sites")
+add('env_dir', 'env', "Default virtualenv directory for new sites")
+add('appy/--no-appy', True, "Whether to use appypod and LibreOffice")
+add('redis/--no-redis', True, "Whether to use appypod and LibreOffice")
+add('devtools/--no-devtools', False, "Whether to use developer tools")
+add('admin_name', 'Joe Dow', "The full name of the server maintainer")
+add('admin_email', 'joe@example.com', "The email address of the server maintainer")
+
+
+
+
+def write_supervisor_conf(filename, content):
+    pth = os.path.join(DEFAULTSECTION.get('supervisor_dir'), filename)
+    if os.path.exists(pth):
+        return False
+    with open(pth, 'w') as fd:
+        fd.write(content)
+    return True
 
 
 def create_virtualenv(envname):
@@ -61,98 +114,98 @@ def install(packages, sys_executable=None):
         subprocess.call([sys.executable, "-m", "pip", "install", packages])
 
 
-# def install_postgresql(envdir):
-#     command = """
-#     sudo apt install postgresql postgresql-contrib
-#     """
-#     os.system(command)
-#     install("psycopg2-binary", sys_executable=envdir)
-#
-#
-# def install_mysql(envdir):
-#     command = """
-#     sudo apt install mysql-server libmysqlclient-dev python-dev libffi-dev libssl-dev
-#     """
-#     os.system(command)
-#     install("mysqlclient", sys_executable=envdir)
-
-DB_ENGINES = [
-    DbEngine('pgsql', "postgresql postgresql-contrib", "psycopg2-binary"),
-    DbEngine('mysql', "mysql-server libmysqlclient-dev python-dev libffi-dev libssl-dev", "mysqlclient"),
-]
-
-
-# @dispatch_command
-# @arg('-mode',help="Prod or Dev mode")
-# @arg('-projects_root',  default='/usr/local/lino',help="The path of the main project folder")
-# @arg('-prjname',help="The project name")
-# @arg('-appname',help="The application name")
-# @arg('-projects_prefix',help="The project prefix")
-# @arg('-arch_dir',help="The path of the backups folder")
-# @arg('-envdir',  help="The name of the python virtualenv")
-# @arg('-reposdir', help="The name of the repositories")
-# @arg('-usergroup', help="The name of the usergroup")
-
-@click.command()
-@click.option('--noinput', default=False, help="Don't ask any questions.")
-@click.option('--projects_root', default='/usr/local/lino', help='Base directory for Lino sites.')
-@click.option('--backups_root', default='/var/backups/lino', help='Base directory for backups.')
-@click.option('--usergroup', default='www-data', help="User group for files to be shared with the web server.")
-@click.option('--db_engine', default='mysql',
-              type=click.Choice([e.name for e in DB_ENGINES]),
-              help="Default database engine for new sites.")
-@click.option('--repos_dir', default='repositories', help="Default repositories directory for new sites.")
-@click.option('--env_dir', default='env', help="Default virtualenv directory for new sites.")
-@click.option('--appy/--no-appy', default=True, help="Whether to use appypod and LibreOffice")
-@click.option('--redis/--no-redis', default=True, help="Whether to use appypod and LibreOffice")
-@click.option('--devtools/--no-devtools', default=False, help="Whether to use developer tools")
-@click.pass_context
-def config(ctx, noinput, projects_root, backups_root, usergroup, db_engine, repos_dir, env_dir, appy, redis, devtools):
+# @click.command()
+# @click.option('--noinput', default=False, help="Don't ask any questions.")
+# @click.option('--projects_root', default='/usr/local/lino', help='Base directory for Lino sites')
+# @click.option('--backups_root', default='/var/backups/lino', help='Base directory for backups')
+# @click.option('--usergroup', default='www-data', help="User group for files to be shared with the web server")
+# @click.option('--supervisor_dir', default='/etc/supervisor/conf.d',
+#               help="Directory for supervisor config files")
+# @click.option('--db_engine', default='mysql',
+#               type=click.Choice([e.name for e in DB_ENGINES]),
+#               help="Default database engine for new sites.")
+# @click.option('--repos_dir', default='repositories', help="Default repositories directory for new sites")
+# @click.option('--env_dir', default='env', help="Default virtualenv directory for new sites")
+# @click.option('--appy/--no-appy', default=True, help="Whether to use appypod and LibreOffice")
+# @click.option('--redis/--no-redis', default=True, help="Whether to use appypod and LibreOffice")
+# @click.option('--devtools/--no-devtools', default=False, help="Whether to use developer tools")
+# @click.option('--admin_name', default='Joe Dow',
+#               help="The full name of the server maintainer")
+# @click.option('--admin_email', default='joe@example.com',
+#               help="The email address of the server maintainer")
+# @click.pass_context
+def configure(ctx, noinput,
+              projects_root, backups_root, usergroup,
+              supervisor_dir, db_engine, repos_dir, env_dir,
+              appy, redis, devtools, admin_name, admin_email):
     """Setup this machine to run as a Lino production server.
     """
 
-    if len(FOUND_CONFIG_FILES):
+    if len(FOUND_CONFIG_FILES) > 1:
         # reconfigure is not yet supported
-        raise click.UsageError("Found existing config file(s) {}".format(
+        raise click.UsageError("Found multiple config files: {}".format(
             FOUND_CONFIG_FILES))
 
-    if not os.access('/root', os.W_OK):
+    if not os.access('/root', os.X_OK):
         raise click.UsageError("This action requires root privileges.")
 
-    if False:  # debug
-        for p in ctx.command.get_params(ctx):
-            print(p.name, CONFIG.get(DEFAULTSECTION, p.name,
-                                     fallback="(not set)"), p.help)
+    # confvars = """projects_root backups_root usergroup
+    # db_engine repos_dir supervisor_dir env_dir
+    # appy redis devtools admin_name admin_email""".split()
 
-    options = locals()
+    # conf_values = locals()
 
-    def setdef(k):
-        if not CONFIG.has_option(None, k):
-            CONFIG.set(None, k, str(options[k]))
+    if not noinput:
+        for p in CONFVARS:
+        # for p in ctx.command.get_params(ctx):
+            k = p.name
+            if k == "noinput":
+                continue
+            # cv = None
+            # for x in CONFVARS:
+            #     if k in x.option_spec:
+            #         cv = x
+            #         break
+            # if not cv:
+            #     continue
+            v  = locals()[k]
+            # v = DEFAULTSECTION.get(k, cv.default)
+            msg = "{} ({})".format(k, p.help)
+            kwargs = dict(default=v)
+            if p.type is not None:
+                kwargs.update(type=p.type)
+            answer = click.prompt(msg, **kwargs)
+            # conf_values[k] = answer
+            CONFIG.set(CONFIG.default_section, k, str(answer))
+            # print(p.name, DEFAULTSECTION.get(p.name, "(not set)"), p.help)
+            # print(p.name, CONFIG.get(DEFAULTSECTION, p.name,
+            #                          fallback="(not set)"), p.help)
 
-    setdef('projects_root')
-    setdef('backups_root')
-    setdef('usergroup')
-    setdef('db_engine')
-    setdef('repos_dir')
-    setdef('env_dir')
-    setdef('appy')
-    setdef('redis')
-    setdef('devtools')
-
-    # write conf only if no system-wide config file exists
+    # write system-wide config file
     conffile = CONF_FILES[0]
-    if noinput or click.confirm("Create config file {} ...".format(
+    if noinput or click.confirm("Create config file {}".format(
             conffile), default=True):
         pth = os.path.dirname(conffile)
         if not os.path.exists(pth):
             os.makedirs(pth, exist_ok=True)
 
-        with open(conffile, 'w') as configfile:
-            CONFIG.write(configfile)
+        with open(conffile, 'w') as fd:
+            CONFIG.write(fd)
         click.echo("Wrote config file " + conffile)
     else:
         raise click.Abort()
+
+params = []
+params.append(click.Option(['--noinput'], default=False, help="Don't ask any questions."))
+for o in CONFVARS:
+    params.append(o)
+
+# print("20190714", params)
+
+configure = click.pass_context(configure)
+configure = click.Command('configure', callback=configure, params=params)
+
+
 
 
 @click.command()
@@ -162,13 +215,15 @@ def setup(ctx, noinput):
     """Setup this machine to run as a Lino production server.
     """
 
+    must_restart = set()
+
     def apt_install(packages):
         cmd = "apt-get install "
         if noinput:
             cmd += "-y "
         os.system(cmd + packages)
 
-    pth = CONFIG.get(DEFAULTSECTION, 'projects_root')
+    pth = DEFAULTSECTION.get('projects_root')
     if not os.path.exists(pth):
         if noinput or click.confirm("Create projects root directory {} ...".format(pth), default=True):
             os.makedirs(pth, exist_ok=True)
@@ -180,55 +235,39 @@ def setup(ctx, noinput):
         apt_install("nginx")
         apt_install("monit")
 
-        if CONFIG.get(DEFAULTSECTION, 'devtools'):
+        if DEFAULTSECTION.get('devtools'):
             apt_install("tidy swig graphviz sqlite3")
 
-        if CONFIG.get(DEFAULTSECTION, 'redis'):
+        if DEFAULTSECTION.get('redis'):
             apt_install("redis-server")
 
         for e in DB_ENGINES:
-            if CONFIG.get(DEFAULTSECTION, 'db_engine') == e.name:
+            if DEFAULTSECTION.get('db_engine') == e.name:
                 apt_install(e.apt_packages)
-
-        if CONFIG.get(DEFAULTSECTION, 'appy'):
+        if DEFAULTSECTION.get('appy'):
             apt_install("libreoffice python3-uno")
 
-            msg = "Create supervisor config for LibreOffice at {}".format(
-                libreoffice_conf_path)
+            msg = "Create supervisor config for LibreOffice"
             if click.confirm(msg):
-                with open(libreoffice_conf_path, 'w') as fd:
-                    fd.write(libreoffice_conf)
-                os.system("service supervisor restart")
+                if write_supervisor_conf('libreoffice.conf',
+                                         LIBREOFFICE_SUPERVISOR_CONF):
+                    must_restart.add('supervisor')
+    for srv in must_restart:
+        os.system("service {} restart".format(srv))
 
     click.echo("Lino server setup completed.")
 
 
-KNOWN_APPS = [
-  KnownApp("noi", "lino_noi.lib.noi.settings", "https://github.com/lino-framework/noi"),
-  KnownApp("voga", "lino_voga.lib.voga.settings", "https://github.com/lino-framework/voga"),
-  KnownApp("cosi", "lino_cosi.lib.cosi.settings", "https://github.com/lino-framework/cosi"),
-  KnownApp("avanti", "lino_avanti.lib.avanti.settings", "https://github.com/lino-framework/avanti"),
-  KnownApp("weleup", "lino_weleup.lib.weleup.settings", "https://github.com/lino-framework/weleup"),
-  KnownApp("welcht", "lino_voga.lib.voga.settings", "https://github.com/lino-framework/welcht"),
-  KnownApp("min2", "lino_book.projects.min2.settings", "https://github.com/lino-framework/book"),
-]
-
-
-APPNAMES = [a.name for a in KNOWN_APPS]
-
 @click.command()
-@click.option('--mode', default='dev', type=click.Choice("prod dev".split()), help='Operation mode')
 @click.argument('appname', metavar="APPNAME", type=click.Choice(APPNAMES))
 @click.argument('prjname')
+@click.option('--server_url', default='https://myprjname.example.com',
+              help="The URL where this site is published")
+@click.option('--dev/--no-dev', default=False,
+              help="Whether to use development version of the application")
 @click.pass_context
-def startsite(ctx, prjname, appname,
-              mode,
-              reposdir,
-              envdir,
-              app_git_repo='https://github.com/lino-framework/noi',
-              app_package='lino_noi',
-              app_settings='lino_noi.lib.noi.settings',
-              server_url="https://myprjname.lino-framework.org",
+def startsite(ctx, appname, prjname,
+              dev,
               admin_full_name='Joe Dow',
               admin_email='joe@example.com',
               db_engine='sqlite',
@@ -249,13 +288,13 @@ def startsite(ctx, prjname, appname,
     if len(FOUND_CONFIG_FILES) == 0:
         raise click.UsageError("This server is not yet confgured. Did you run `getlino install`?")
 
-    prjpath = os.path.join(CONFIG.get(DEFAULTSECTION, 'projects_root'), prjname)
+    prjpath = os.path.join(DEFAULTSECTION.get('projects_root'), prjname)
     if os.path.exists(prjpath):
         raise click.UsageError("Project directory {} already exists.")
 
     raise Exception("Sorry, this command is not yet fully implemented")
 
-    projects_root = CONFIG.get(DEFAULTSECTION, 'projects_root')
+    projects_root = DEFAULTSECTION.get('projects_root')
     # envdir = config['LINO']['envdir']
 
     if not no_input:
@@ -361,7 +400,7 @@ def startsite(ctx, prjname, appname,
         "db_user": db_user,
         "db_password": db_password,
         "db_name": prjname,
-        "usergroup": CONFIG.get(DEFAULTSECTION, 'usergroup')
+        "usergroup": DEFAULTSECTION.get('usergroup')
     }
 
     out = subprocess.Popen(['groups | grep ' + usergroup], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True)
@@ -404,16 +443,12 @@ def startsite(ctx, prjname, appname,
 def main():
     pass
 
-main.add_command(config)
+main.add_command(configure)
 main.add_command(setup)
 main.add_command(startsite)
 
 if __name__ == '__main__':
-    main(auto_envvar_prefix='GETLINO')
+    main()
+    # main(auto_envvar_prefix='GETLINO')
 
 
-# parser = argh.ArghParser()
-# parser.add_commands([setup, startsite])
-#
-# if __name__ == '__main__':
-#     parser.dispatch()
