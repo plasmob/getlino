@@ -1,30 +1,36 @@
+import sys
+if sys.version_info[0] < 3:
+    raise Exception("Requires Python 3")
+
 from setuptools import setup
+
 
 SETUP_INFO = dict(
     name='getlino',
-    version='19.7.2',
-    install_requires=['click', 'argh', 'virtualenv', 'cookiecutter', 'setuptools', 'uwsgi'],
+    version='19.7.3',
+    install_requires=['click', 'cookiecutter'],
+    # install_requires=['click', 'virtualenv', 'cookiecutter', 'setuptools', 'uwsgi'],
     test_suite='tests',
     description="Get Lino application",
     long_description=u"""
-    Get Lino application
+    Configure a Lino production server and create sites on it.
     """,
-    author='Luc Saffre',
-    author_email='luc.saffre@gmail.com',
+    author='Rumma & Ko Ltd',
+    author_email='team@lino-framework.org',
     url="http://lino-framework.org",
     license='BSD-2-Clause',
     scripts=['getlino.py'],
     classifiers="""\
-Programming Language :: Python
 Programming Language :: Python :: 3
 Development Status :: 1 - Planning
-Environment :: Web Environment
+Environment :: Console
 Framework :: Django
 Intended Audience :: Developers
 Intended Audience :: System Administrators
 License :: OSI Approved :: BSD License
 Operating System :: OS Independent
-Topic :: Office/Business :: Financial :: Accounting
+Topic :: System :: Installation/Setup
+Topic :: Software Development :: Libraries :: Python Modules
 """.splitlines())
 
 SETUP_INFO.update(
