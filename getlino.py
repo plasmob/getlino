@@ -57,25 +57,23 @@ def add(spec, default, help, type=None):
     kwargs.update(help=help)
     if type is not None:
         kwargs.update(type=type)
-    o = click.Option(["--"+spec], **kwargs)
+    o = click.Option([spec], **kwargs)
     o.default = DEFAULTSECTION.get(o.name, default)
     CONFVARS.append(o)
 
 # must be same order as in signature of configure command below
-add('projects_root', '/usr/local/lino', 'Base directory for Lino sites')
-add('backups_root', '/var/backups/lino', 'Base directory for backups')
-add('usergroup', 'www-data', "User group for files to be shared with the web server")
-add('supervisor_dir', '/etc/supervisor/conf.d', "Directory for supervisor config files")
-add('db_engine', 'mysql', "Default database engine for new sites.", click.Choice([e.name for e in DB_ENGINES]))
-add('repos_dir', 'repositories', "Default repositories directory for new sites")
-add('env_dir', 'env', "Default virtualenv directory for new sites")
-add('appy/--no-appy', True, "Whether to use appypod and LibreOffice")
-add('redis/--no-redis', True, "Whether to use appypod and LibreOffice")
-add('devtools/--no-devtools', False, "Whether to use developer tools")
-add('admin_name', 'Joe Dow', "The full name of the server maintainer")
-add('admin_email', 'joe@example.com', "The email address of the server maintainer")
-
-
+add('--projects-root', '/usr/local/lino', 'Base directory for Lino sites')
+add('--backups-root', '/var/backups/lino', 'Base directory for backups')
+add('--usergroup', 'www-data', "User group for files to be shared with the web server")
+add('--supervisor-dir', '/etc/supervisor/conf.d', "Directory for supervisor config files")
+add('--db-engine', 'mysql', "Default database engine for new sites.", click.Choice([e.name for e in DB_ENGINES]))
+add('--repos-dir', 'repositories', "Default repositories directory for new sites")
+add('--env-dir', 'env', "Default virtualenv directory for new sites")
+add('--appy/--no-appy', True, "Whether to use appypod and LibreOffice")
+add('--redis/--no-redis', True, "Whether to use appypod and LibreOffice")
+add('--devtools/--no-devtools', False, "Whether to use developer tools")
+add('--admin-name', 'Joe Dow', "The full name of the server maintainer")
+add('--admin-email', 'joe@example.com', "The email address of the server maintainer")
 
 
 def write_supervisor_conf(filename, content):
@@ -134,7 +132,7 @@ def install(packages, sys_executable=None):
 # @click.option('--admin_email', default='joe@example.com',
 #               help="The email address of the server maintainer")
 # @click.pass_context
-def configure(ctx, noinput,
+def configure(ctx, batch,
               projects_root, backups_root, usergroup,
               supervisor_dir, db_engine, repos_dir, env_dir,
               appy, redis, devtools, admin_name, admin_email):
@@ -155,21 +153,23 @@ def configure(ctx, noinput,
 
     # conf_values = locals()
 
-    if not noinput:
-        for p in CONFVARS:
-        # for p in ctx.command.get_params(ctx):
-            k = p.name
-            if k == "noinput":
-                continue
-            # cv = None
-            # for x in CONFVARS:
-            #     if k in x.option_spec:
-            #         cv = x
-            #         break
-            # if not cv:
-            #     continue
-            v  = locals()[k]
-            # v = DEFAULTSECTION.get(k, cv.default)
+    for p in CONFVARS:
+    # for p in ctx.command.get_params(ctx):
+        k = p.name
+        if k == "batch":
+            continue
+        # cv = None
+        # for x in CONFVARS:
+        #     if k in x.option_spec:
+        #         cv = x
+        #         break
+        # if not cv:
+        #     continue
+        v  = locals()[k]
+        # v = DEFAULTSECTION.get(k, cv.default)
+        if batch:
+            CONFIG.set(CONFIG.default_section, k, str(v))
+        else:
             msg = "{} ({})".format(k, p.help)
             kwargs = dict(default=v)
             if p.type is not None:
@@ -177,13 +177,13 @@ def configure(ctx, noinput,
             answer = click.prompt(msg, **kwargs)
             # conf_values[k] = answer
             CONFIG.set(CONFIG.default_section, k, str(answer))
-            # print(p.name, DEFAULTSECTION.get(p.name, "(not set)"), p.help)
-            # print(p.name, CONFIG.get(DEFAULTSECTION, p.name,
-            #                          fallback="(not set)"), p.help)
+        # print(p.name, DEFAULTSECTION.get(p.name, "(not set)"), p.help)
+        # print(p.name, CONFIG.get(DEFAULTSECTION, p.name,
+        #                          fallback="(not set)"), p.help)
 
     # write system-wide config file
     conffile = CONF_FILES[0]
-    if noinput or click.confirm("Create config file {}".format(
+    if batch or click.confirm("Create config file {}".format(
             conffile), default=True):
         pth = os.path.dirname(conffile)
         if not os.path.exists(pth):
@@ -196,7 +196,7 @@ def configure(ctx, noinput,
         raise click.Abort()
 
 params = []
-params.append(click.Option(['--noinput'], default=False, help="Don't ask any questions."))
+params.append(click.Option(['--batch/--no-batch'], default=False, help="Whether to run in batch mode, i.e. don't ask any questions."))
 for o in CONFVARS:
     params.append(o)
 
@@ -209,9 +209,9 @@ configure = click.Command('configure', callback=configure, params=params)
 
 
 @click.command()
-@click.option('--noinput', default=False, help="Don't ask any questions.")
+@click.option('--batch/--no-batch', default=False, help="Don't ask any questions.")
 @click.pass_context
-def setup(ctx, noinput):
+def setup(ctx, batch):
     """Setup this machine to run as a Lino production server.
     """
 
@@ -219,16 +219,16 @@ def setup(ctx, noinput):
 
     def apt_install(packages):
         cmd = "apt-get install "
-        if noinput:
+        if batch:
             cmd += "-y "
         os.system(cmd + packages)
 
     pth = DEFAULTSECTION.get('projects_root')
     if not os.path.exists(pth):
-        if noinput or click.confirm("Create projects root directory {} ...".format(pth), default=True):
+        if batch or click.confirm("Create projects root directory {} ...".format(pth), default=True):
             os.makedirs(pth, exist_ok=True)
 
-    if noinput or click.confirm("Install system packages"):
+    if batch or click.confirm("Install system packages"):
         os.system("apt-get update")
         os.system("apt-get upgrade")
         apt_install("git subversion python3 python3-dev python3-setuptools python3-pip supervisor")
