@@ -183,7 +183,7 @@ def configure(ctx, batch,
 
     # write system-wide config file
     conffile = CONF_FILES[0]
-    if batch or click.confirm("Create config file {}".format(
+    if batch or click.confirm("Write config file {}".format(
             conffile), default=True):
         pth = os.path.dirname(conffile)
         if not os.path.exists(pth):
