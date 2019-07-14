@@ -7,7 +7,7 @@ from setuptools import setup
 
 SETUP_INFO = dict(
     name='getlino',
-    version='19.7.3',
+    version='19.7.2',
     install_requires=['click', 'cookiecutter'],
     # install_requires=['click', 'virtualenv', 'cookiecutter', 'setuptools', 'uwsgi'],
     test_suite='tests',
