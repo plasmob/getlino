@@ -209,7 +209,8 @@ params = [
     click.Option(['--batch/--no-batch'], default=False, help=BATCH_HELP)
 ] + CONFIGURE_OPTIONS
 configure = click.pass_context(configure)
-configure = click.Command('configure', callback=configure, params=params)
+configure = click.Command('configure', callback=configure, params=params, help=configure.__doc__)
+
 
 
 @click.command()
