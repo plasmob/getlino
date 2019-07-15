@@ -32,5 +32,6 @@ RUN sudo apt-get update
 
 #RUN pip3 install getlino
 RUN sudo pip3 install click argh virtualenv cookiecutter setuptools uwsgi
-RUN sudo python getlino.py setup -n
+RUN sudo python getlino.py getlino.py configure -n
+RUN sudo python getlino.py getlino.py setup -n
 RUN sudo python getlino.py startsite -n

@@ -114,9 +114,8 @@ def write_supervisor_conf(filename, content):
 
 def create_virtualenv(envname):
     #virtualenvs_folder = os.path.expanduser(virtualenvs)
-    venv_dir = os.path.join(virtualenvs, envname)
-    virtualenv.create_environment(venv_dir)
-    command = ". {}/{}/bin/activate".format(virtualenvs, envname)
+    virtualenv.create_environment(envname)
+    command = ". {}/bin/activate".format(envname)
     os.system(command)
 
 
@@ -285,7 +284,7 @@ def startsite(ctx, appname, prjname,
               db_engine='sqlite',
               db_user='lino',
               db_password='1234',
-              conffile='/etc/getlino.conf',
+              conffile=CONF_FILES[0],
               no_input=False):
     """
     Create a new Lino site.
@@ -304,9 +303,13 @@ def startsite(ctx, appname, prjname,
     if os.path.exists(prjpath):
         raise click.UsageError("Project directory {} already exists.")
 
-    raise Exception("Sorry, this command is not yet fully implemented")
+    #raise Exception("Sorry, this command is not yet fully implemented")
 
     projects_root = DEFAULTSECTION.get('projects_root')
+    env_dir = DEFAULTSECTION.get('env_dir')
+    db_engine = DEFAULTSECTION.get('db_engine')
+    full_envdir = os.path.join(projects_root,prjname,env_dir)
+    repos_dir = DEFAULTSECTION.get('repos_dir')
     # envdir = config['LINO']['envdir']
 
     if not no_input:
@@ -328,23 +331,25 @@ def startsite(ctx, appname, prjname,
             if len(answer):
                 appname = answer
 
-        if not click.confirm("Lino application name : {} ".format(app_package), default=True):
+        if not click.confirm("Lino application name : {} ".format(prjname), default=True):
             print("Lino application name :")
             answer = input()
             if len(answer):
-                app_package = answer
+                prjname = answer
 
-        if not click.confirm("Application git repo  : {} ".format(app_git_repo), default=True):
-            print("Application git repo :")
-            answer = input()
-            if len(answer):
-                app_git_repo = answer
+            
 
-        if not click.confirm("Application setting  : {} ".format(app_settings), default=True):
-            print("Application setting :")
-            answer = input()
-            if len(answer):
-                app_settings = answer
+        #if not click.confirm("Application git repo  : {} ".format(app_git_repo), default=True):
+        #    print("Application git repo :")
+        #    answer = input()
+        #    if len(answer):
+        #        app_git_repo = answer
+
+        #if not click.confirm("Application setting  : {} ".format(app_settings), default=True):
+        #    print("Application setting :")
+        #    answer = input()
+        #    if len(answer):
+        #        app_settings = answer
 
         if not click.confirm("Server URL  : {} ".format(server_url), default=True):
             print("Server URL :")
@@ -364,18 +369,6 @@ def startsite(ctx, appname, prjname,
             if len(answer):
                 admin_email = answer
 
-        print('What database engine would use ?')
-        print('1) postgresql')
-        print('2) mysql')
-        print('3) sqlite')
-        answer = input()
-        if answer in ['1', 1]:
-            install_postgresql(full_envdir)
-            db_engine = 'postgresql'
-        elif answer in ['2', 2]:
-            install_mysql(full_envdir)
-            db_engine = 'mysql'
-
         if not click.confirm("db user  : {} ".format(db_user), default=True):
             print("db user :")
             answer = input()
@@ -388,8 +381,11 @@ def startsite(ctx, appname, prjname,
             if len(answer):
                 db_password = answer
 
+    app_git_repo = KNOWN_APPS[APPNAMES.index(appname)].git_repo
+    app_settings = KNOWN_APPS[APPNAMES.index(appname)].settings_module
+    app_package = app_settings.split('.')[0]
+
     install('virtualenv')
-    full_envdir = os.path.join(projects_root,prjname, envdir)
     create_virtualenv(full_envdir)
     install("uwsgi", sys_executable=full_envdir)
     # install("cookiecutter", sys_executable=full_envdir)
@@ -398,7 +394,7 @@ def startsite(ctx, appname, prjname,
     extra_context = {
         "prjname": prjname,
         "projects_root":projects_root,
-        "reposdir":reposdir,
+        "reposdir":repos_dir,
         "appname": appname,
         "app_git_repo": app_git_repo,
         "app_package": app_package,
@@ -414,6 +410,7 @@ def startsite(ctx, appname, prjname,
         "db_name": prjname,
         "usergroup": DEFAULTSECTION.get('usergroup')
     }
+    usergroup = DEFAULTSECTION.get('usergroup')
 
     out = subprocess.Popen(['groups | grep ' + usergroup], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True)
     stdout, stderr = out.communicate()
@@ -443,13 +440,13 @@ def startsite(ctx, appname, prjname,
     os.system('cd {0}'.format(projects_root))
     # os.system("cookiecutter https://github.com/lino-framework/cookiecutter-startsite")
     
-    #cookiecutter(
-    #    "https://github.com/lino-framework/cookiecutter-startsite",
-    #    no_input=True, extra_context=extra_context)
-    #Testing 
     cookiecutter(
-        "/media/khchine5/011113a1-84fe-48ef-826d-4c81de9456731/home/khchine5/PycharmProjects/lino/cookiecutter-startsite",
-        no_input=True, extra_context=extra_context)
+        "https://github.com/lino-framework/cookiecutter-startsite",
+        no_input=True, extra_context=extra_context,output_dir=projects_root)
+    #Testing 
+    #cookiecutter(
+    #    "/media/khchine5/011113a1-84fe-48ef-826d-4c81de9456731/home/khchine5/PycharmProjects/lino/cookiecutter-startsite",
+    #    no_input=True, extra_context=extra_context)
 
 @click.group()
 def main():
