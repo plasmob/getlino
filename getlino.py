@@ -72,7 +72,8 @@ add('--repos-dir', 'repositories', "Default repositories directory for new sites
 add('--env-dir', 'env', "Default virtualenv directory for new sites")
 add('--appy/--no-appy', True, "Whether to use appypod and LibreOffice")
 add('--redis/--no-redis', True, "Whether to use appypod and LibreOffice")
-add('--devtools/--no-devtools', False, "Whether to use developer tools")
+add('--devtools/--no-devtools', False, "Whether to use developer tools (build docs and run tests)")
+add('--once/--no-once', False, "Setup a temporary server for a single test run")
 add('--admin-name', 'Joe Dow', "The full name of the server maintainer")
 add('--admin-email', 'joe@example.com', "The email address of the server maintainer")
 
@@ -118,6 +119,11 @@ def create_virtualenv(envname):
     command = ". {}/bin/activate".format(envname)
     os.system(command)
 
+
+def run_in_env(env, cmd):
+    """env is the path of the venv"""
+    cmd = ". {}/bin/activate && {}".format(env, cmd)
+    os.system(cmd)
 
 def install_python_requirements():
     command = """
@@ -268,6 +274,33 @@ def setup(ctx, batch):
                 os.system("service {} restart".format(srv))
 
     click.echo("Lino server setup completed.")
+
+
+
+@click.command()
+@click.option('--env', default=None,
+              help="Install into specified environment")
+@click.pass_context
+def install_python_requirements(ctx, env):
+    """Install Python requirements for Lino.
+
+    If you don't specify env, then getlino will look at the VIRTUAL_ENV
+    environment variable. If this also is not set, it supposes that you are in
+    a project directory.
+
+
+    On Travis
+
+    """
+    raise Exception("Maybe nonsense!")
+    if env is None:
+        env = os.environ.get('VIRTUAL_ENV', DEFAULTSECTION.get('env_dir'))
+    run_in_env(env, "pip install -U setuptools")
+    run_in_env(env, "pip install appy")
+
+
+
+
 
 
 @click.command()
