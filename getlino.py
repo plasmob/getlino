@@ -3,7 +3,7 @@
 # License: BSD (see file COPYING for details)
 #
 
-import os, sys
+import os, sys, stat, shutil, grp
 import configparser
 import virtualenv
 import click
@@ -15,9 +15,9 @@ DbEngine = collections.namedtuple(
     'DbEngine', ('name', 'apt_packages', 'python_packages'))
 KnownApp = collections.namedtuple(
     'KnownApp', ('name', 'settings_module', 'git_repo'))
-ConfVar = collections.namedtuple(
-    'ConfVar', ('name', 'default', 'help', 'type'))
 
+BATCH_HELP = "Whether to run in batch mode, i.e. without asking any questions.  "\
+             "Don't use this on a machine that is already being used."
 
 LIBREOFFICE_supervisor_dir = """
 [program:libreoffice]
@@ -49,7 +49,7 @@ FOUND_CONFIG_FILES = CONFIG.read(CONF_FILES)
 DEFAULTSECTION = CONFIG[CONFIG.default_section]
 
 
-CONFVARS = []
+CONFIGURE_OPTIONS = []
 
 def add(spec, default, help, type=None):
 
@@ -59,11 +59,12 @@ def add(spec, default, help, type=None):
         kwargs.update(type=type)
     o = click.Option([spec], **kwargs)
     o.default = DEFAULTSECTION.get(o.name, default)
-    CONFVARS.append(o)
+    CONFIGURE_OPTIONS.append(o)
 
 # must be same order as in signature of configure command below
 add('--projects-root', '/usr/local/lino', 'Base directory for Lino sites')
 add('--backups-root', '/var/backups/lino', 'Base directory for backups')
+add('--log-root', '/var/log/lino', 'Base directory for log files')
 add('--usergroup', 'www-data', "User group for files to be shared with the web server")
 add('--supervisor-dir', '/etc/supervisor/conf.d', "Directory for supervisor config files")
 add('--db-engine', 'mysql', "Default database engine for new sites.", click.Choice([e.name for e in DB_ENGINES]))
@@ -74,6 +75,32 @@ add('--redis/--no-redis', True, "Whether to use appypod and LibreOffice")
 add('--devtools/--no-devtools', False, "Whether to use developer tools")
 add('--admin-name', 'Joe Dow', "The full name of the server maintainer")
 add('--admin-email', 'joe@example.com', "The email address of the server maintainer")
+
+
+def check_permissions(pth, batch=True, executable=False):
+    si = os.stat(pth)
+
+    # check whether group owner is what we want
+    usergroup = DEFAULTSECTION.get('usergroup')
+    if grp.getgrgid(si.st_gid).gr_name != usergroup:
+        if batch or click.confirm("Set group owner for {}".format(pth), default=True):
+            shutil.chown(pth, group=usergroup)
+
+    # check access permissions
+    mode = stat.S_IRGRP | stat.S_IWGRP
+    mode |= stat.S_IRUSR | stat.S_IWUSR
+    mode |= stat.S_IROTH
+    if stat.S_ISDIR(si.st_mode):
+        mode |= stat.S_ISGID | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    elif executable:
+        mode |= stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    imode = stat.S_IMODE(si.st_mode)
+    if imode ^ mode:
+        msg = "Set mode for {} from {} to {}".format(
+            pth, imode, mode)
+            # pth, stat.filemode(imode), stat.filemode(mode))
+        if batch or click.confirm(msg, default=True):
+            os.chmod(pth, mode)
 
 
 def write_supervisor_conf(filename, content):
@@ -112,31 +139,26 @@ def install(packages, sys_executable=None):
         subprocess.call([sys.executable, "-m", "pip", "install", packages])
 
 
-# @click.command()
-# @click.option('--noinput', default=False, help="Don't ask any questions.")
-# @click.option('--projects_root', default='/usr/local/lino', help='Base directory for Lino sites')
-# @click.option('--backups_root', default='/var/backups/lino', help='Base directory for backups')
-# @click.option('--usergroup', default='www-data', help="User group for files to be shared with the web server")
-# @click.option('--supervisor_dir', default='/etc/supervisor/conf.d',
-#               help="Directory for supervisor config files")
-# @click.option('--db_engine', default='mysql',
-#               type=click.Choice([e.name for e in DB_ENGINES]),
-#               help="Default database engine for new sites.")
-# @click.option('--repos_dir', default='repositories', help="Default repositories directory for new sites")
-# @click.option('--env_dir', default='env', help="Default virtualenv directory for new sites")
-# @click.option('--appy/--no-appy', default=True, help="Whether to use appypod and LibreOffice")
-# @click.option('--redis/--no-redis', default=True, help="Whether to use appypod and LibreOffice")
-# @click.option('--devtools/--no-devtools', default=False, help="Whether to use developer tools")
-# @click.option('--admin_name', default='Joe Dow',
-#               help="The full name of the server maintainer")
-# @click.option('--admin_email', default='joe@example.com',
-#               help="The email address of the server maintainer")
-# @click.pass_context
+def yes_or_no(msg, yes="yY", no="nN"):
+    """Ask for confirmation without accepting a mere RETURN."""
+    click.echo(msg, nl=False)
+    while True:
+        c = click.getchar()
+        if c in yes:
+            click.echo(" Yes")
+            return True
+        elif c in no:
+            click.echo(" No")
+            return False
+
+# This will be decorated below. We cannot use decorators because we define the
+# list of options in CONFIGURE_OPTIONS
+
 def configure(ctx, batch,
-              projects_root, backups_root, usergroup,
+              projects_root, backups_root, log_root, usergroup,
               supervisor_dir, db_engine, repos_dir, env_dir,
               appy, redis, devtools, admin_name, admin_email):
-    """Setup this machine to run as a Lino production server.
+    """Write a system-wide config file.
     """
 
     if len(FOUND_CONFIG_FILES) > 1:
@@ -153,20 +175,11 @@ def configure(ctx, batch,
 
     # conf_values = locals()
 
-    for p in CONFVARS:
-    # for p in ctx.command.get_params(ctx):
+    for p in CONFIGURE_OPTIONS:
         k = p.name
-        if k == "batch":
-            continue
-        # cv = None
-        # for x in CONFVARS:
-        #     if k in x.option_spec:
-        #         cv = x
-        #         break
-        # if not cv:
+        # if k == "batch":
         #     continue
-        v  = locals()[k]
-        # v = DEFAULTSECTION.get(k, cv.default)
+        v = locals()[k]
         if batch:
             CONFIG.set(CONFIG.default_section, k, str(v))
         else:
@@ -177,14 +190,11 @@ def configure(ctx, batch,
             answer = click.prompt(msg, **kwargs)
             # conf_values[k] = answer
             CONFIG.set(CONFIG.default_section, k, str(answer))
-        # print(p.name, DEFAULTSECTION.get(p.name, "(not set)"), p.help)
-        # print(p.name, CONFIG.get(DEFAULTSECTION, p.name,
-        #                          fallback="(not set)"), p.help)
 
     # write system-wide config file
     conffile = CONF_FILES[0]
-    if batch or click.confirm("Write config file {}".format(
-            conffile), default=True):
+    if batch or yes_or_no("Write config file {} [y or n] ?".format(
+            conffile)):
         pth = os.path.dirname(conffile)
         if not os.path.exists(pth):
             os.makedirs(pth, exist_ok=True)
@@ -195,24 +205,18 @@ def configure(ctx, batch,
     else:
         raise click.Abort()
 
-params = []
-params.append(click.Option(['--batch/--no-batch'], default=False, help="Whether to run in batch mode, i.e. don't ask any questions."))
-for o in CONFVARS:
-    params.append(o)
-
-# print("20190714", params)
-
+params = [
+    click.Option(['--batch/--no-batch'], default=False, help=BATCH_HELP)
+] + CONFIGURE_OPTIONS
 configure = click.pass_context(configure)
 configure = click.Command('configure', callback=configure, params=params)
 
 
-
-
 @click.command()
-@click.option('--batch/--no-batch', default=False, help="Don't ask any questions.")
+@click.option('--batch/--no-batch', default=False, help=BATCH_HELP)
 @click.pass_context
 def setup(ctx, batch):
-    """Setup this machine to run as a Lino production server.
+    """Apply the configuration to set up this machine to become a Lino production server.
     """
 
     must_restart = set()
@@ -224,13 +228,17 @@ def setup(ctx, batch):
         os.system(cmd + packages)
 
     pth = DEFAULTSECTION.get('projects_root')
-    if not os.path.exists(pth):
-        if batch or click.confirm("Create projects root directory {} ...".format(pth), default=True):
-            os.makedirs(pth, exist_ok=True)
+    if os.path.exists(pth):
+        check_permissions(pth, batch)
+    elif batch or click.confirm("Create projects root directory {}".format(pth), default=True):
+        os.makedirs(pth, exist_ok=True)
+        check_permissions(pth)
 
-    if batch or click.confirm("Install system packages"):
+    if batch or click.confirm("Upgrade the system"):
         os.system("apt-get update")
         os.system("apt-get upgrade")
+
+    if batch or click.confirm("Install required system packages"):
         apt_install("git subversion python3 python3-dev python3-setuptools python3-pip supervisor")
         apt_install("nginx")
         apt_install("monit")
@@ -248,12 +256,15 @@ def setup(ctx, batch):
             apt_install("libreoffice python3-uno")
 
             msg = "Create supervisor config for LibreOffice"
-            if click.confirm(msg):
+            if batch or click.confirm(msg):
                 if write_supervisor_conf('libreoffice.conf',
                                          LIBREOFFICE_SUPERVISOR_CONF):
                     must_restart.add('supervisor')
-    for srv in must_restart:
-        os.system("service {} restart".format(srv))
+    if len(must_restart):
+        msg = "Restart services {}".format(must_restart)
+        if batch or click.confirm(msg):
+            for srv in must_restart:
+                os.system("service {} restart".format(srv))
 
     click.echo("Lino server setup completed.")
 
