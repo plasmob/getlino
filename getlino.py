@@ -19,7 +19,7 @@ KnownApp = collections.namedtuple(
 BATCH_HELP = "Whether to run in batch mode, i.e. without asking any questions.  "\
              "Don't use this on a machine that is already being used."
 
-LIBREOFFICE_supervisor_dir = """
+LIBREOFFICE_SUPERVISOR_CONF = """
 [program:libreoffice]
 command = libreoffice --accept="socket,host=127.0.0.1,port=8100;urp;" --nologo --headless --nofirststartwizard
 user = root
@@ -195,6 +195,7 @@ def configure(ctx, batch,
     conffile = CONF_FILES[0]
     if batch or yes_or_no("Write config file {} [y or n] ?".format(
             conffile)):
+        print("Config file to use is {}".format(conffile))
         pth = os.path.dirname(conffile)
         if not os.path.exists(pth):
             os.makedirs(pth, exist_ok=True)
@@ -278,7 +279,7 @@ def setup(ctx, batch):
               help="Whether to use development version of the application")
 @click.pass_context
 def startsite(ctx, appname, prjname,
-              dev,
+              dev,server_url,
               admin_full_name='Joe Dow',
               admin_email='joe@example.com',
               db_engine='sqlite',
@@ -297,7 +298,7 @@ def startsite(ctx, appname, prjname,
 
     """ # .format(appnames=' '.join(APPNAMES))
     if len(FOUND_CONFIG_FILES) == 0:
-        raise click.UsageError("This server is not yet confgured. Did you run `getlino install`?")
+        raise click.UsageError("This server is not yet configured. Did you run `sudo getlino.py configure`?")
 
     prjpath = os.path.join(DEFAULTSECTION.get('projects_root'), prjname)
     if os.path.exists(prjpath):
