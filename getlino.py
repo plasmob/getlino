@@ -125,7 +125,7 @@ def run_in_env(env, cmd):
     cmd = ". {}/bin/activate && {}".format(env, cmd)
     os.system(cmd)
 
-def install_python_requirements():
+def install_python_requirements_old():
     command = """
     pip3 install -U pip setuptools
     pip3 install -e svn+https://svn.forge.pallavi.be/appy-dev/dev1#egg=appy
@@ -343,7 +343,9 @@ def startsite(ctx, appname, prjname,
     env_dir = DEFAULTSECTION.get('env_dir')
     db_engine = DEFAULTSECTION.get('db_engine')
     full_envdir = os.path.join(projects_root,prjname,env_dir)
+    project_dir = os.path.join(projects_root,prjname)
     repos_dir = DEFAULTSECTION.get('repos_dir')
+    full_repos_dir = os.path.join(full_envdir,repos_dir)
     # envdir = config['LINO']['envdir']
 
     if not no_input:
@@ -418,12 +420,10 @@ def startsite(ctx, appname, prjname,
     app_git_repo = KNOWN_APPS[APPNAMES.index(appname)].git_repo
     app_settings = KNOWN_APPS[APPNAMES.index(appname)].settings_module
     app_package = app_settings.split('.')[0]
+    app_package_name = app_git_repo.split('/')[-1]
 
     install('virtualenv')
-    create_virtualenv(full_envdir)
-    install("uwsgi", sys_executable=full_envdir)
-    # install("cookiecutter", sys_executable=full_envdir)
-    install("svn+https://svn.forge.pallavi.be/appy-dev/dev1#egg=appy", sys_executable=full_envdir)
+    install('cookiecutter')
 
     extra_context = {
         "prjname": prjname,
@@ -433,8 +433,8 @@ def startsite(ctx, appname, prjname,
         "app_git_repo": app_git_repo,
         "app_package": app_package,
         "app_settings": app_settings,
-        "use_app_dev": "y",
-        "use_lino_dev": "n",
+        "use_app_dev": "y" if dev else 'n',
+        "use_lino_dev": "y" if dev else 'n',
         "server_url": server_url,
         "admin_full_name": admin_full_name,
         "admin_email": admin_email,
@@ -457,26 +457,48 @@ def startsite(ctx, appname, prjname,
         print("echo sudo adduser `whoami` {0}".format(usergroup))
         return
 
-    print('Create a new production site into {0} using Lino {1} ...'.format(projects_root, appname))
-    if not no_input:
-        print('Are you sure? [y/N] ')
-        answer = input()
-        if answer not in ['Yes', 'y', 'Y']:
-            return
+    print('Creating a new production site into {0} using Lino {1} ...'.format(projects_root, appname))
 
-    os.system('mkdir {0}'.format(projects_root))
-    os.system('cd {0}'.format(projects_root))
+    #os.system('mkdir {0}'.format(projects_root))
+    #os.system('cd {0}'.format(projects_root))
     #sys_executable = os.path.join(os.path.expanduser(projects_root), envdir)
-    install('cookiecutter', sys_executable=full_envdir)
-    print(full_envdir)
-    command = ". {}/bin/activate".format(full_envdir)
-    os.system(command)
-    os.system('cd {0}'.format(projects_root))
+    #print(full_envdir)
+    #command = ". {}/bin/activate".format(full_envdir)
+    #os.system(command)
+    #os.system('cd {0}'.format(projects_root))
     # os.system("cookiecutter https://github.com/lino-framework/cookiecutter-startsite")
     
     cookiecutter(
         "https://github.com/lino-framework/cookiecutter-startsite",
         no_input=True, extra_context=extra_context,output_dir=projects_root)
+
+    create_virtualenv(full_envdir)
+    for e in DB_ENGINES:
+        if DEFAULTSECTION.get('db_engine') == e.name:
+            run_in_env(full_envdir,e.python_packages)
+    if not os.path.exists(full_repos_dir):
+            os.makedirs(full_repos_dir, exist_ok=True)
+    os.chdir(full_repos_dir)
+
+    if dev or True:
+        os.system("sudo git clone https://github.com/lino-framework/lino")
+        run_in_env(full_envdir,"pip install -e lino")
+        os.system("sudo git clone https://github.com/lino-framework/xl")
+        run_in_env(full_envdir,"pip install -e xl")
+
+    if app_git_repo:
+        os.system("sudo git clone {}".format(app_git_repo))
+        run_in_env(full_envdir,"pip install -e {}".format(app_package_name))
+    else:
+        run_in_env(full_envdir,"pip install {}".format(app_package_name))
+
+
+    run_in_env(full_envdir, "pip install -U uwsgi")
+    run_in_env(full_envdir, "pip install -U svn+https://svn.forge.pallavi.be/appy-dev/dev1#egg=appy")
+    os.chdir(project_dir)
+    prep_command = "python manage.py prep --noinput"
+    print(prep_command)
+    run_in_env(full_envdir,prep_command)
     #Testing 
     #cookiecutter(
     #    "/media/khchine5/011113a1-84fe-48ef-826d-4c81de9456731/home/khchine5/PycharmProjects/lino/cookiecutter-startsite",
@@ -487,6 +509,7 @@ def main():
     pass
 
 main.add_command(configure)
+main.add_command(install_python_requirements)
 main.add_command(setup)
 main.add_command(startsite)
 
