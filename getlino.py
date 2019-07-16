@@ -29,6 +29,7 @@ user = root
 DB_ENGINES = [
     DbEngine('pgsql', "postgresql postgresql-contrib", "psycopg2-binary"),
     DbEngine('mysql', "mysql-server libmysqlclient-dev python-dev libffi-dev libssl-dev", "mysqlclient"),
+    DbEngine('sqlite', "", "")
 ]
 
 KNOWN_APPS = [
@@ -475,19 +476,19 @@ def startsite(ctx, appname, prjname,
     create_virtualenv(full_envdir)
     for e in DB_ENGINES:
         if DEFAULTSECTION.get('db_engine') == e.name:
-            run_in_env(full_envdir,e.python_packages)
+            run_in_env(full_envdir,"pip install {}".format(e.python_packages))
     if not os.path.exists(full_repos_dir):
             os.makedirs(full_repos_dir, exist_ok=True)
     os.chdir(full_repos_dir)
 
     if dev or True:
-        os.system("sudo git clone https://github.com/lino-framework/lino")
+        os.system("git clone https://github.com/lino-framework/lino")
         run_in_env(full_envdir,"pip install -e lino")
-        os.system("sudo git clone https://github.com/lino-framework/xl")
+        os.system("git clone https://github.com/lino-framework/xl")
         run_in_env(full_envdir,"pip install -e xl")
 
     if app_git_repo:
-        os.system("sudo git clone {}".format(app_git_repo))
+        os.system("git clone {}".format(app_git_repo))
         run_in_env(full_envdir,"pip install -e {}".format(app_package_name))
     else:
         run_in_env(full_envdir,"pip install {}".format(app_package_name))
