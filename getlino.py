@@ -9,9 +9,9 @@ import stat
 import shutil
 import grp
 import configparser
+import subprocess
 import virtualenv
 import click
-import subprocess
 import collections
 from cookiecutter.main import cookiecutter
 
@@ -20,6 +20,7 @@ DbEngine = collections.namedtuple(
 KnownApp = collections.namedtuple(
     'KnownApp', ('name', 'settings_module', 'git_repo'))
 
+COOKIECUTTER_URL = "https://github.com/lino-framework/cookiecutter-startsite"
 BATCH_HELP = "Whether to run in batch mode, i.e. without asking any questions.  "\
              "Don't use this on a machine that is already being used."
 
@@ -92,10 +93,18 @@ add('--appy/--no-appy', True, "Whether to use appypod and LibreOffice")
 add('--redis/--no-redis', True, "Whether to use appypod and LibreOffice")
 add('--devtools/--no-devtools', False,
     "Whether to use developer tools (build docs and run tests)")
-add('--once/--no-once', False, "Setup a temporary server for a single test run")
 add('--admin-name', 'Joe Dow', "The full name of the server maintainer")
 add('--admin-email', 'joe@example.com',
     "The email address of the server maintainer")
+
+
+def runcmd(cmd, **kw):
+    """Run the cmd similar as os.system(), but stop when Ctrl-C."""
+    # kw.update(stdout=subprocess.PIPE)
+    # kw.update(stderr=subprocess.STDOUT)
+    # kw.update(universal_newlines=True)
+    subprocess.check_output(cmd, shell=True)
+    # os.system(cmd)
 
 
 def create_database_user(user, pwd, db_engine):
@@ -107,22 +116,30 @@ def create_database_user(user, pwd, db_engine):
         sub_command = "psql -c \"CREATE USER {} WITH PASSWORD '{}';\"".format(
             user, pwd)
         command = 'sudo -u postgres bash -c "{};"'.format(sub_command)
-    if command:
-        os.system(command)
+    else:
+        return
+    runcmd(command)
 
 
 def create_database(user, database, db_engine):
     if db_engine == 'mysql':
-        sub_command = "create database {} charset 'utf8'; grant all on {database}.* to {} with grant option;".format(
-            database, user)
+        sub_command = "create database {database} charset 'utf8'; grant all on {database}.* to {user} with grant option;".format(
+            **locals())
         command = 'mysql -uroot -e "{};"'.format(sub_command)
     elif db_engine == 'pgsql':
-        sub_command = "CREATE DATABASE {}; GRANT ALL PRIVILEGES ON DATABASE {} TO {};".format(
-            database, user)
+        sub_command = "CREATE DATABASE {database}; GRANT ALL PRIVILEGES ON DATABASE {database} TO {user};".format(
+            **locals())
         command = 'sudo -u postgres bash -c "{};"'.format(sub_command)
-    if command:
-        os.system(command)
+    else:
+        return
+    runcmd(command)
 
+
+def check_usergroup(usergroup):
+    for gid in os.getgroups():
+        if grp.getgrgid(gid).gr_name == usergroup:
+            return True
+    return False
 
 def check_permissions(pth, batch=True, executable=False):
     si = os.stat(pth)
@@ -159,17 +176,11 @@ def write_supervisor_conf(filename, content):
     return True
 
 
-def create_virtualenv(envname):
-    #virtualenvs_folder = os.path.expanduser(virtualenvs)
-    virtualenv.create_environment(envname)
-    command = ". {}/bin/activate".format(envname)
-    os.system(command)
-
-
 def run_in_env(env, cmd):
     """env is the path of the venv"""
+    click.echo(cmd)
     cmd = ". {}/bin/activate && {}".format(env, cmd)
-    os.system(cmd)
+    runcmd(cmd)
 
 
 def install_python_requirements_old():
@@ -178,13 +189,13 @@ def install_python_requirements_old():
     pip3 install -e svn+https://svn.forge.pallavi.be/appy-dev/dev1#egg=appy
     pip3 install uwsgi
     """
-    os.system(command)
+    runcmd(command)
 
 
 def install(packages, sys_executable=None):
     if sys_executable:
         command = ". {}/bin/activate".format(sys_executable)
-        os.system(command)
+        runcmd(command)
         for package in packages.split(' '):
             subprocess.call(
                 ["{}/bin/python".format(sys_executable), "-m", "pip", "install", package])
@@ -220,8 +231,21 @@ def configure(ctx, batch,
         raise click.UsageError("Found multiple config files: {}".format(
             FOUND_CONFIG_FILES))
 
-    if not os.access('/root', os.X_OK):
-        raise click.UsageError("This action requires root privileges.")
+    # write config file. if there is no system-wide file but a user file, write
+    # the user file. Otherwise write the system-wide file.
+    if len(FOUND_CONFIG_FILES) == 1:
+        conffile = FOUND_CONFIG_FILES[0]
+        click.echo("Updating configuration file {}".format(conffile))
+        if not os.access(conffile, os.W_OK):
+            raise click.ClickException(
+                "No write permission for file {}".format(conffile))
+    else:
+        conffile = CONF_FILES[0]
+        click.echo("Creating configuration file {}".format(conffile))
+        if not os.access(os.path.dirname(conffile), os.W_OK):
+            raise click.ClickException(
+                "No write permission for file {}".format(conffile))
+
 
     # confvars = """projects_root backups_root usergroup
     # db_engine repos_dir supervisor_dir env_dir
@@ -245,11 +269,8 @@ def configure(ctx, batch,
             # conf_values[k] = answer
             CONFIG.set(CONFIG.default_section, k, str(answer))
 
-    # write system-wide config file
-    conffile = CONF_FILES[0]
     if batch or yes_or_no("Write config file {} [y or n] ?".format(
             conffile)):
-        print("Config file to use is {}".format(conffile))
         pth = os.path.dirname(conffile)
         if not os.path.exists(pth):
             os.makedirs(pth, exist_ok=True)
@@ -282,7 +303,7 @@ def setup(ctx, batch):
         cmd = "apt-get install "
         if batch:
             cmd += "-y "
-        os.system(cmd + packages)
+        runcmd(cmd + packages)
 
     pth = DEFAULTSECTION.get('projects_root')
     if os.path.exists(pth):
@@ -292,8 +313,8 @@ def setup(ctx, batch):
         check_permissions(pth)
 
     if batch or click.confirm("Upgrade the system"):
-        os.system("apt-get update")
-        os.system("apt-get upgrade")
+        runcmd("apt-get update")
+        runcmd("apt-get upgrade")
 
     if batch or click.confirm("Install required system packages"):
         apt_install(
@@ -311,7 +332,7 @@ def setup(ctx, batch):
             if DEFAULTSECTION.get('db_engine') == e.name:
                 apt_install(e.apt_packages)
             if DEFAULTSECTION.get('db_engine') == 'mysql':
-                os.system("sudo mysql_secure_installation")
+                runcmd("sudo mysql_secure_installation")
         if DEFAULTSECTION.get('appy'):
             apt_install("libreoffice python3-uno")
 
@@ -324,7 +345,7 @@ def setup(ctx, batch):
         msg = "Restart services {}".format(must_restart)
         if batch or click.confirm(msg):
             for srv in must_restart:
-                os.system("service {} restart".format(srv))
+                runcmd("service {} restart".format(srv))
 
     click.echo("Lino server setup completed.")
 
@@ -354,20 +375,16 @@ def install_python_requirements(ctx, env):
 @click.command()
 @click.argument('appname', metavar="APPNAME", type=click.Choice(APPNAMES))
 @click.argument('prjname')
-@click.option('--server_url', default='https://myprjname.example.com',
-              help="The URL where this site is published")
+@click.option('--batch/--no-batch', default=False, help=BATCH_HELP)
 @click.option('--dev/--no-dev', default=False,
               help="Whether to use development version of the application")
+@click.option('--server_url', default='https://myprjname.example.com',
+              help="The URL where this site is published")
 @click.pass_context
 def startsite(ctx, appname, prjname,
-              dev, server_url,
-              admin_full_name='Joe Dow',
-              admin_email='joe@example.com',
-              db_engine='sqlite',
+              batch, dev, server_url,
               db_user='lino',
-              db_password='1234',
-              conffile=CONF_FILES[0],
-              no_input=False):
+              db_password='1234'):
     """
     Create a new Lino site.
 
@@ -377,175 +394,116 @@ def startsite(ctx, appname, prjname,
 
     PRJNAME : The project name for the new site.
 
-    """  # .format(appnames=' '.join(APPNAMES))
+    """ # .format(appnames=' '.join(APPNAMES))
+
     if len(FOUND_CONFIG_FILES) == 0:
         raise click.UsageError(
             "This server is not yet configured. Did you run `sudo getlino.py configure`?")
 
     prjpath = os.path.join(DEFAULTSECTION.get('projects_root'), prjname)
     if os.path.exists(prjpath):
-        raise click.UsageError("Project directory {} already exists.")
+        raise click.UsageError("Project directory {} already exists.".format(prjpath))
+
+    usergroup = DEFAULTSECTION.get('usergroup')
+
+    if check_usergroup(usergroup):
+        click.echo("OK you belong to the {0} user group.".format(usergroup))
+    else:
+        msg = """\
+ERROR: you don't belong to the {0} user group.  Maybe you want to run:
+sudo adduser `whoami` {0}"""
+        raise click.ClickError(msg.format(usergroup))
+
+    #raise Exception("Sorry, this command is not yet fully implemented")
 
     projects_root = DEFAULTSECTION.get('projects_root')
-    env_dir = DEFAULTSECTION.get('env_dir')
-    db_engine = DEFAULTSECTION.get('db_engine')
-    full_envdir = os.path.join(projects_root, prjname, env_dir)
     project_dir = os.path.join(projects_root, prjname)
+    envdir = os.path.join(project_dir, DEFAULTSECTION.get('env_dir'))
     repos_dir = DEFAULTSECTION.get('repos_dir')
-    full_repos_dir = os.path.join(full_envdir, repos_dir)
+    db_engine = DEFAULTSECTION.get('db_engine')
+    repos_dir = DEFAULTSECTION.get('repos_dir')
+    full_repos_dir = os.path.join(envdir, repos_dir)
+    admin_name = DEFAULTSECTION.get('admin_name')
+    admin_email = DEFAULTSECTION.get('admin_email')
+    db_password = "123456"  # todo: generate random password
 
-    if not no_input:
+    click.echo('Creating a new production site into {0} using Lino {1} ...'.format(project_dir, appname))
 
-        if not click.confirm("Project name : {} ".format(prjname), default=True):
-            print("Project name :")
-            answer = input()
-            if len(answer):
-                prjname = answer
+    if not batch:
+        server_url = click.prompt("Server URL ", default=server_url)
+        admin_name = click.prompt("Administrator's full name", default=admin_name)
+        admin_email = click.prompt("Administrator's full name", default=admin_email)
+        db_user = click.prompt("Database user name", default=prjname)
+        db_password = click.prompt("Database user password", default=db_password)
 
-        if not click.confirm("Application name : {} ".format(appname), default=True):
-            print("Application name :")
-            answer = input()
-            if len(answer):
-                appname = answer
+        if not yes_or_no("OK to create {} [y or n] ?".format(project_dir)):
+            raise click.Abort()
 
-        if not click.confirm("Lino application name : {} ".format(prjname), default=True):
-            print("Lino application name :")
-            answer = input()
-            if len(answer):
-                prjname = answer
-
-        # if not click.confirm("Application git repo  : {} ".format(app_git_repo), default=True):
-        #    print("Application git repo :")
-        #    answer = input()
-        #    if len(answer):
-        #        app_git_repo = answer
-
-        # if not click.confirm("Application setting  : {} ".format(app_settings), default=True):
-        #    print("Application setting :")
-        #    answer = input()
-        #    if len(answer):
-        #        app_settings = answer
-
-        if not click.confirm("Server URL  : {} ".format(server_url), default=True):
-            print("Server URL :")
-            answer = input()
-            if len(answer):
-                server_url = answer
-
-        if not click.confirm("Admin full name  : {} ".format(admin_full_name), default=True):
-            print("Admin full name :")
-            answer = input()
-            if len(answer):
-                admin_full_name = answer
-
-        if not click.confirm("Admin email  : {} ".format(admin_email), default=True):
-            print("Admin email :")
-            answer = input()
-            if len(answer):
-                admin_email = answer
-        if db_engine != "sqlite":
-            if not click.confirm("db user  : {} ".format(db_user), default=True):
-                print("db user :")
-                answer = input()
-                if len(answer):
-                    db_user = answer
-
-            if not click.confirm("db password  : {} ".format(db_password), default=True):
-                print("db password :")
-                answer = input()
-                if len(answer):
-                    db_password = answer
-
-    app_git_repo = KNOWN_APPS[APPNAMES.index(appname)].git_repo
-    app_settings = KNOWN_APPS[APPNAMES.index(appname)].settings_module
-    app_package = app_settings.split('.')[0]
-    app_package_name = app_git_repo.split('/')[-1]
-
-    install('virtualenv')
-    install('cookiecutter')
+    app = KNOWN_APPS[APPNAMES.index(appname)]
+    app_package = app.settings_module.split('.')[0]
+    repo_nickname = app.git_repo.split('/')[-1]
 
     extra_context = {
         "prjname": prjname,
-        "projects_root": projects_root,
-        "reposdir": repos_dir,
+        # "projects_root": projects_root,
+        # "reposdir": repos_dir,
         "appname": appname,
-        "app_git_repo": app_git_repo,
-        "app_package": app_package,
-        "app_settings": app_settings,
-        "use_app_dev": "y" if dev else 'n',
-        "use_lino_dev": "y" if dev else 'n',
+        # "app_git_repo": app_git_repo,
+        # "app_package": app_package,
+        "app_settings": app.settings_module,
+        # "use_app_dev": "y" if dev else 'n',
+        # "use_lino_dev": "y" if dev else 'n',
         "server_url": server_url,
-        "admin_full_name": admin_full_name,
+        "admin_full_name": admin_name,
         "admin_email": admin_email,
         "db_engine": db_engine,
         "db_user": db_user,
         "db_password": db_password,
         "db_name": prjname,
-        "usergroup": DEFAULTSECTION.get('usergroup')
+        # "usergroup": usergroup
     }
-    usergroup = DEFAULTSECTION.get('usergroup')
 
-    out = subprocess.Popen(['groups | grep ' + usergroup],
-                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True)
-    stdout, stderr = out.communicate()
-    if str(stdout):
-        print("OK you belong to the {0} user group.".format(usergroup))
-    else:
-        print(
-            "ERROR: you don't belong to the {0} user group.".format(usergroup))
-        print("Maybe you want to run:")
-        # echo sudo usermod -a -G $USERGROUP `whoami`
-        print("echo sudo adduser `whoami` {0}".format(usergroup))
-        return
+    os.umask(0o002)
 
-    print('Creating a new production site into {0} using Lino {1} ...'.format(
-        projects_root, appname))
-
-    #os.system('mkdir {0}'.format(projects_root))
-    #os.system('cd {0}'.format(projects_root))
-    #sys_executable = os.path.join(os.path.expanduser(projects_root), envdir)
-    # print(full_envdir)
-    #command = ". {}/bin/activate".format(full_envdir)
-    # os.system(command)
-    #os.system('cd {0}'.format(projects_root))
-    # os.system("cookiecutter https://github.com/lino-framework/cookiecutter-startsite")
-    current_umask = os.umask(0o002)
-    # os.umask(current_umask)
-    print("current_umask {}".format(current_umask))
+    click.echo("Running cookiecutter {}...".format(COOKIECUTTER_URL))
     cookiecutter(
-        "https://github.com/lino-framework/cookiecutter-startsite",
+        COOKIECUTTER_URL,
         no_input=True, extra_context=extra_context, output_dir=projects_root)
 
-    create_virtualenv(full_envdir)
+    click.echo("Creating virtualenv {} ...".format(envdir))
+    virtualenv.create_environment(envdir)
+
     for e in DB_ENGINES:
         if DEFAULTSECTION.get('db_engine') == e.name:
-            run_in_env(full_envdir, "pip install {}".format(e.python_packages))
+            run_in_env(envdir,"pip install {}".format(e.python_packages))
     if not os.path.exists(full_repos_dir):
         os.makedirs(full_repos_dir, exist_ok=True)
     os.chdir(full_repos_dir)
 
     if dev:
-        os.system("git clone https://github.com/lino-framework/lino")
-        run_in_env(full_envdir, "pip install -e lino")
-        os.system("git clone https://github.com/lino-framework/xl")
-        run_in_env(full_envdir, "pip install -e xl")
-
-    if app_git_repo:
-        os.system("git clone {}".format(app_git_repo))
-        run_in_env(full_envdir, "pip install -e {}".format(app_package_name))
+        runcmd("git clone https://github.com/lino-framework/lino")
+        run_in_env(envdir, "pip install -e lino")
+        runcmd("git clone https://github.com/lino-framework/xl")
+        run_in_env(envdir, "pip install -e xl")
     else:
-        run_in_env(full_envdir, "pip install {}".format(app_package_name))
+        run_in_env(envdir, "pip install lino")
 
-    run_in_env(full_envdir, "pip install -U uwsgi")
+    if dev and app.git_repo:
+        runcmd("git clone {}".format(app.git_repo))
+        run_in_env(envdir, "pip install -e {}".format(repo_nickname))
+    else:
+        run_in_env(envdir, "pip install {}".format(app_package))
+
+    run_in_env(envdir, "pip install -U uwsgi")
     run_in_env(
-        full_envdir, "pip install -U svn+https://svn.forge.pallavi.be/appy-dev/dev1#egg=appy")
+        envdir, "pip install -U svn+https://svn.forge.pallavi.be/appy-dev/dev1#egg=appy")
     os.chdir(project_dir)
     if db_engine != "sqlite":
         create_database_user(db_user, db_password, db_engine)
         create_database(db_user, prjname, db_engine)
     prep_command = "python manage.py prep --noinput"
-    print(prep_command)
-    run_in_env(full_envdir, prep_command)
+    # print(prep_command)
+    run_in_env(envdir, prep_command)
 
 
 @click.group()
