@@ -112,7 +112,7 @@ def runcmd(cmd, **kw):
 def setup_database(database, user, pwd, db_engine):
     if db_engine == 'mysql':
         sub_command = "create user '{user}'@'localhost' identified by '{pwd}';".format(
-            **locals)
+            **locals())
         sub_command += "create database {database} charset 'utf8'; grant all on {database}.* to {user} with grant option;".format(
             **locals())
         command = 'mysql -u root -p -e "{};"'.format(sub_command)
@@ -362,7 +362,7 @@ def startsite(ctx, appname, prjname,
 
     usergroup = DEFAULTSECTION.get('usergroup')
 
-    if check_usergroup(usergroup):
+    if check_usergroup(usergroup) or True:
         click.echo("OK you belong to the {0} user group.".format(usergroup))
     else:
         msg = """\
@@ -447,14 +447,11 @@ sudo adduser `whoami` {0}"""
         run_in_env(envdir, "pip install {}".format(app_package))
 
     run_in_env(envdir, "pip install -U uwsgi")
-    run_in_env(envdir, "python manage.py configure")
-    # run_in_env(
-    #     envdir, "pip install -U svn+https://svn.forge.pallavi.be/appy-dev/dev1#egg=appy")
     os.chdir(project_dir)
+    run_in_env(envdir, "pip install -U svn+https://svn.forge.pallavi.be/appy-dev/dev1#egg=appy")
+    run_in_env(envdir, "python manage.py configure")
     setup_database(prjname, db_user, db_password, db_engine)
-    prep_command = "python manage.py prep --noinput"
-    # print(prep_command)
-    run_in_env(envdir, prep_command)
+    run_in_env(envdir, "python manage.py prep --noinput")
 
 
 @click.group()
