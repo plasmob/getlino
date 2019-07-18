@@ -87,12 +87,12 @@ add('--supervisor-dir', '/etc/supervisor/conf.d',
     "Directory for supervisor config files")
 add('--db-engine', 'sqlite', "Default database engine for new sites.",
     click.Choice([e.name for e in DB_ENGINES]))
-add('--repos-dir', 'repositories', "Default repositories directory for new sites")
 add('--env-dir', 'env', "Default virtualenv directory for new sites")
-add('--appy/--no-appy', True, "Whether to use appypod and LibreOffice")
-add('--redis/--no-redis', True, "Whether to use appypod and LibreOffice")
+add('--repos-dir', 'repositories', "Default repositories directory for new sites")
+add('--appy/--no-appy', True, "Whether this server provides appypod and LibreOffice")
+add('--redis/--no-redis', True, "Whether this server provides redis")
 add('--devtools/--no-devtools', False,
-    "Whether to use developer tools (build docs and run tests)")
+    "Whether this server provides developer tools (build docs and run tests)")
 add('--admin-name', 'Joe Dow', "The full name of the server maintainer")
 add('--admin-email', 'joe@example.com',
     "The email address of the server maintainer")
@@ -102,32 +102,24 @@ def runcmd(cmd, **kw):
     """Run the cmd similar as os.system(), but stop when Ctrl-C."""
     # kw.update(stdout=subprocess.PIPE)
     # kw.update(stderr=subprocess.STDOUT)
-    # kw.update(universal_newlines=True)
-    subprocess.check_output(cmd, shell=True)
+    kw.update(shell=True)
+    kw.update(universal_newlines=True)
+    # subprocess.check_output(cmd, **kw)
+    subprocess.run(cmd, **kw)
     # os.system(cmd)
 
 
-def create_database_user(user, pwd, db_engine):
+def setup_database(database, user, pwd, db_engine):
     if db_engine == 'mysql':
-        sub_command = "create user '{}'@'localhost' identified by '{}';".format(
-            user, pwd)
-        command = 'sudo mysql -uroot -e "{};"'.format(sub_command)
-    elif db_engine == 'pgsql':
-        sub_command = "psql -c \"CREATE USER {} WITH PASSWORD '{}';\"".format(
-            user, pwd)
-        command = 'sudo -u postgres bash -c "{};"'.format(sub_command)
-    else:
-        return
-    runcmd(command)
-
-
-def create_database(user, database, db_engine):
-    if db_engine == 'mysql':
-        sub_command = "create database {database} charset 'utf8'; grant all on {database}.* to {user} with grant option;".format(
+        sub_command = "create user '{user}'@'localhost' identified by '{pwd}';".format(
+            **locals)
+        sub_command += "create database {database} charset 'utf8'; grant all on {database}.* to {user} with grant option;".format(
             **locals())
-        command = 'mysql -uroot -e "{};"'.format(sub_command)
+        command = 'mysql -u root -p -e "{};"'.format(sub_command)
     elif db_engine == 'pgsql':
-        sub_command = "CREATE DATABASE {database}; GRANT ALL PRIVILEGES ON DATABASE {database} TO {user};".format(
+        sub_command = "psql -c \"CREATE USER {user} WITH PASSWORD '{pwd}';\"".format(
+            **locals())
+        sub_command += "CREATE DATABASE {database}; GRANT ALL PRIVILEGES ON DATABASE {database} TO {user};".format(
             **locals())
         command = 'sudo -u postgres bash -c "{};"'.format(sub_command)
     else:
@@ -183,15 +175,6 @@ def run_in_env(env, cmd):
     runcmd(cmd)
 
 
-def install_python_requirements_old():
-    command = """
-    pip3 install -U pip setuptools
-    pip3 install -e svn+https://svn.forge.pallavi.be/appy-dev/dev1#egg=appy
-    pip3 install uwsgi
-    """
-    runcmd(command)
-
-
 def install(packages, sys_executable=None):
     if sys_executable:
         command = ". {}/bin/activate".format(sys_executable)
@@ -221,9 +204,12 @@ def yes_or_no(msg, yes="yY", no="nN"):
 
 def configure(ctx, batch,
               projects_root, backups_root, log_root, usergroup,
-              supervisor_dir, db_engine, repos_dir, env_dir,
+              supervisor_dir, db_engine, env_dir, repos_dir,
               appy, redis, devtools, admin_name, admin_email):
-    """Write a system-wide config file.
+    """
+    Edit and/or create a configuration file and
+    set up this machine to become a Lino production server
+    according to the configuration file.
     """
 
     if len(FOUND_CONFIG_FILES) > 1:
@@ -281,22 +267,6 @@ def configure(ctx, batch,
     else:
         raise click.Abort()
 
-
-params = [
-    click.Option(['--batch/--no-batch'], default=False, help=BATCH_HELP)
-] + CONFIGURE_OPTIONS
-configure = click.pass_context(configure)
-configure = click.Command('configure', callback=configure,
-                          params=params, help=configure.__doc__)
-
-
-@click.command()
-@click.option('--batch/--no-batch', default=False, help=BATCH_HELP)
-@click.pass_context
-def setup(ctx, batch):
-    """Apply the configuration to set up this machine to become a Lino production server.
-    """
-
     must_restart = set()
 
     def apt_install(packages):
@@ -349,27 +319,13 @@ def setup(ctx, batch):
 
     click.echo("Lino server setup completed.")
 
+params = [
+    click.Option(['--batch/--no-batch'], default=False, help=BATCH_HELP)
+] + CONFIGURE_OPTIONS
+configure = click.pass_context(configure)
+configure = click.Command('configure', callback=configure,
+                          params=params, help=configure.__doc__)
 
-@click.command()
-@click.option('--env', default=None,
-              help="Install into specified environment")
-@click.pass_context
-def install_python_requirements(ctx, env):
-    """Install Python requirements for Lino.
-
-    If you don't specify env, then getlino will look at the VIRTUAL_ENV
-    environment variable. If this also is not set, it supposes that you are in
-    a project directory.
-
-
-    On Travis
-
-    """
-    raise Exception("Maybe nonsense!")
-    if env is None:
-        env = os.environ.get('VIRTUAL_ENV', DEFAULTSECTION.get('env_dir'))
-    run_in_env(env, "pip install -U setuptools")
-    run_in_env(env, "pip install appy")
 
 
 @click.command()
@@ -412,17 +368,13 @@ def startsite(ctx, appname, prjname,
         msg = """\
 ERROR: you don't belong to the {0} user group.  Maybe you want to run:
 sudo adduser `whoami` {0}"""
-        raise click.ClickError(msg.format(usergroup))
-
-    #raise Exception("Sorry, this command is not yet fully implemented")
+        raise click.ClickException(msg.format(usergroup))
 
     projects_root = DEFAULTSECTION.get('projects_root')
     project_dir = os.path.join(projects_root, prjname)
     envdir = os.path.join(project_dir, DEFAULTSECTION.get('env_dir'))
-    repos_dir = DEFAULTSECTION.get('repos_dir')
     db_engine = DEFAULTSECTION.get('db_engine')
-    repos_dir = DEFAULTSECTION.get('repos_dir')
-    full_repos_dir = os.path.join(envdir, repos_dir)
+    full_repos_dir = os.path.join(envdir, DEFAULTSECTION.get('repos_dir'))
     admin_name = DEFAULTSECTION.get('admin_name')
     admin_email = DEFAULTSECTION.get('admin_email')
     db_password = "123456"  # todo: generate random password
@@ -495,12 +447,11 @@ sudo adduser `whoami` {0}"""
         run_in_env(envdir, "pip install {}".format(app_package))
 
     run_in_env(envdir, "pip install -U uwsgi")
-    run_in_env(
-        envdir, "pip install -U svn+https://svn.forge.pallavi.be/appy-dev/dev1#egg=appy")
+    run_in_env(envdir, "python manage.py configure")
+    # run_in_env(
+    #     envdir, "pip install -U svn+https://svn.forge.pallavi.be/appy-dev/dev1#egg=appy")
     os.chdir(project_dir)
-    if db_engine != "sqlite":
-        create_database_user(db_user, db_password, db_engine)
-        create_database(db_user, prjname, db_engine)
+    setup_database(prjname, db_user, db_password, db_engine)
     prep_command = "python manage.py prep --noinput"
     # print(prep_command)
     run_in_env(envdir, prep_command)
@@ -512,8 +463,6 @@ def main():
 
 
 main.add_command(configure)
-main.add_command(install_python_requirements)
-main.add_command(setup)
 main.add_command(startsite)
 
 if __name__ == '__main__':
