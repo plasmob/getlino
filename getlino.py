@@ -108,6 +108,11 @@ def runcmd(cmd, **kw):
     subprocess.run(cmd, **kw)
     # os.system(cmd)
 
+def apt_install(packages,batch):
+        cmd = "apt-get install "
+        if batch:
+            cmd += "-y "
+        runcmd(cmd + packages)
 
 def setup_database(database, user, pwd, db_engine):
     if db_engine == 'mysql':
@@ -269,12 +274,6 @@ def configure(ctx, batch,
 
     must_restart = set()
 
-    def apt_install(packages):
-        cmd = "apt-get install "
-        if batch:
-            cmd += "-y "
-        runcmd(cmd + packages)
-
     pth = DEFAULTSECTION.get('projects_root')
     if os.path.exists(pth):
         check_permissions(pth, batch)
@@ -288,23 +287,23 @@ def configure(ctx, batch,
 
     if batch or click.confirm("Install required system packages"):
         apt_install(
-            "git subversion python3 python3-dev python3-setuptools python3-pip supervisor")
-        apt_install("nginx")
-        apt_install("monit")
+            "git subversion python3 python3-dev python3-setuptools python3-pip supervisor",batch)
+        apt_install("nginx",batch)
+        apt_install("monit",batch)
 
         if DEFAULTSECTION.get('devtools'):
-            apt_install("tidy swig graphviz sqlite3")
+            apt_install("tidy swig graphviz sqlite3",batch)
 
         if DEFAULTSECTION.get('redis'):
-            apt_install("redis-server")
+            apt_install("redis-server",batch)
 
         for e in DB_ENGINES:
             if DEFAULTSECTION.get('db_engine') == e.name:
-                apt_install(e.apt_packages)
+                apt_install(e.apt_packages,batch)
             if DEFAULTSECTION.get('db_engine') == 'mysql':
                 runcmd("sudo mysql_secure_installation")
         if DEFAULTSECTION.get('appy'):
-            apt_install("libreoffice python3-uno")
+            apt_install("libreoffice python3-uno",batch)
 
             msg = "Create supervisor config for LibreOffice"
             if batch or click.confirm(msg):
@@ -428,6 +427,7 @@ sudo adduser `whoami` {0}"""
     for e in DB_ENGINES:
         if DEFAULTSECTION.get('db_engine') == e.name:
             run_in_env(envdir,"pip install {}".format(e.python_packages))
+            apt_install(e.apt_packages,batch)
     if not os.path.exists(full_repos_dir):
         os.makedirs(full_repos_dir, exist_ok=True)
     os.chdir(full_repos_dir)
