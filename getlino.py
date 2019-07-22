@@ -30,11 +30,15 @@ command = libreoffice --accept="socket,host=127.0.0.1,port=8100;urp;" --nologo -
 user = root
 """
 
+UWSGI_SUPERVISOR_CONF = """
+[program:{}-uwsgi]
+command = /usr/local/bin/uwsgi --ini {}/nginx/{}-uwsgi.ini
+"""
 
 DB_ENGINES = [
     DbEngine('pgsql', "postgresql postgresql-contrib", "psycopg2-binary"),
     DbEngine(
-        'mysql', "mysql-server libmysqlclient-dev python-dev libffi-dev libssl-dev", "mysqlclient"),
+        'mysql', "mysql-server libmysqlclient-dev python-dev libffi-dev libssl-dev python-mysqldb", "mysqlclient"),
     DbEngine('sqlite', "", "")
 ]
 
@@ -121,6 +125,7 @@ def setup_database(database, user, pwd, db_engine):
             **locals())
         sub_command += "create database {database} charset 'utf8'; grant all on {database}.* to {user} with grant option;".format(
             **locals())
+        sub_command += " FLUSH PRIVILEGES"
         command = 'mysql -u root -p -e "{};"'.format(sub_command)
     elif db_engine == 'pgsql':
         sub_command = "psql -c \"CREATE USER {user} WITH PASSWORD '{pwd}';\"".format(
@@ -384,6 +389,7 @@ sudo adduser `whoami` {0}"""
     admin_email = DEFAULTSECTION.get('admin_email')
     db_user = prjname
     db_password = "1234"  # todo: generate random password
+    db_engine = DEFAULTSECTION.get('db_engine')
 
     click.echo('Creating a new production site into {0} using Lino {1} ...'.format(project_dir, appname))
 
@@ -414,7 +420,7 @@ sudo adduser `whoami` {0}"""
         "server_url": server_url,
         "admin_full_name": admin_name,
         "admin_email": admin_email,
-        "db_engine": DEFAULTSECTION.get('db_engine'),
+        "db_engine": db_engine,
         "db_user": db_user,
         "db_password": db_password,
         "db_name": prjname,
@@ -453,12 +459,24 @@ sudo adduser `whoami` {0}"""
     else:
         run_in_env(envdir, "pip install {}".format(app_package))
 
+    for e in DB_ENGINES:
+        if DEFAULTSECTION.get('db_engine') == e.name:
+            run_in_env(envdir, "pip install {}".format(e.python_packages))
+
 
     # currently getlino supports only nginx, but maybe we might add other web
     # servers
 
     if True:
         run_in_env(envdir, "pip install -U uwsgi")
+        nginx_file_name = "nginx-{}.conf".format(prjname)
+        nginx_sites_availabe_path = os.path.join(project_dir,'nginx',nginx_file_name)
+        runcmd("sudo cp {} /etc/nginx/sites-available".format(nginx_sites_availabe_path))
+        runcmd("sudo ln -s {} /etc/nginx/sites-enabled/".format(nginx_sites_availabe_path))
+        runcmd("sudo service nginx restart")
+        write_supervisor_conf('{}-uwsgi.conf'.format(prjname),
+                                         UWSGI_SUPERVISOR_CONF.format(prjname,project_dir,prjname))
+        runcmd("service supervisor restart")
         # TODO: create an nginx config file for this site
 
     os.chdir(project_dir)
@@ -466,6 +484,7 @@ sudo adduser `whoami` {0}"""
     run_in_env(envdir, "python manage.py configure")
     setup_database(prjname, db_user, db_password, db_engine)
     run_in_env(envdir, "python manage.py prep --noinput")
+    run_in_env(envdir, "python manage.py collectstatic --noinput")
 
 
 @click.group()
