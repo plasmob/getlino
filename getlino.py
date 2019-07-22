@@ -15,10 +15,17 @@ import click
 import collections
 from cookiecutter.main import cookiecutter
 
+from os.path import join
+
 DbEngine = collections.namedtuple(
     'DbEngine', ('name', 'apt_packages', 'python_packages'))
 KnownApp = collections.namedtuple(
     'KnownApp', ('name', 'settings_module', 'git_repo'))
+
+# currently getlino supports only nginx, maybe we might add other web servers
+USE_NGINX = True
+SITES_AVAILABLE = '/etc/nginx/sites-available'
+SITES_ENABLED = '/etc/nginx/sites-enabled'
 
 COOKIECUTTER_URL = "https://github.com/lino-framework/cookiecutter-startsite"
 BATCH_HELP = "Whether to run in batch mode, i.e. without asking any questions.  "\
@@ -102,40 +109,131 @@ add('--admin-name', 'Joe Dow', "The full name of the server maintainer")
 add('--admin-email', 'joe@example.com',
     "The email address of the server maintainer")
 
+class Installer(object):
+    def __init__(self, batch=False):
+        self.batch = batch
+        self._services = set()
+        self._system_packages = set()
 
-def runcmd(cmd, **kw):
-    """Run the cmd similar as os.system(), but stop when Ctrl-C."""
-    # kw.update(stdout=subprocess.PIPE)
-    # kw.update(stderr=subprocess.STDOUT)
-    kw.update(shell=True)
-    kw.update(universal_newlines=True)
-    # subprocess.check_output(cmd, **kw)
-    subprocess.run(cmd, **kw)
-    # os.system(cmd)
+    def check_overwrite(self, pth):
+        if os.path.exists(pth):
+            if os.path.isdir(pth):
+                if self.yes_or_no("Overwrite existing directory {} ? [y or n]".format(pth)):
+                    shutil.rmtree(pth)
+                else:
+                    raise click.Abort()
+            else:
+                if self.yes_or_no("Overwrite existing file {} ? [y or n]".format(pth)):
+                    os.remove(pth)
+                else:
+                    raise click.Abort()
 
-def apt_install(packages,batch):
+    def yes_or_no(self, msg, yes="yY", no="nN"):
+        """Ask for confirmation without accepting a mere RETURN."""
+        if self.batch:
+            return True
+        click.echo(msg, nl=False)
+        while True:
+            c = click.getchar()
+            if c in yes:
+                click.echo(" Yes")
+                return True
+            elif c in no:
+                click.echo(" No")
+                return False
+
+    def must_restart(self, srvname):
+        self._services.add(srvname)
+
+    def runcmd(self, cmd, **kw):
+        """Run the cmd similar as os.system(), but stop when Ctrl-C."""
+        # kw.update(stdout=subprocess.PIPE)
+        # kw.update(stderr=subprocess.STDOUT)
+        kw.update(shell=True)
+        kw.update(universal_newlines=True)
+        # subprocess.check_output(cmd, **kw)
+        if self.batch or click.confirm("run {}".format(cmd), default=True):
+            click.echo(cmd)
+            subprocess.run(cmd, **kw)
+
+    def apt_install(self, packages):
+        for pkg in packages.split():
+            self._system_packages.add(pkg)
+
+    def run_in_env(self, env, cmd):
+        """env is the path of the virtualenv"""
+        # click.echo(cmd)
+        cmd = ". {}/bin/activate && {}".format(env, cmd)
+        self.runcmd(cmd)
+
+    def check_permissions(self, pth, executable=False):
+        si = os.stat(pth)
+
+        # check whether group owner is what we want
+        usergroup = DEFAULTSECTION.get('usergroup')
+        if grp.getgrgid(si.st_gid).gr_name != usergroup:
+            if self.batch or click.confirm("Set group owner for {}".format(pth),
+                                            default=True):
+                shutil.chown(pth, group=usergroup)
+
+        # check access permissions
+        mode = stat.S_IRGRP | stat.S_IWGRP
+        mode |= stat.S_IRUSR | stat.S_IWUSR
+        mode |= stat.S_IROTH
+        if stat.S_ISDIR(si.st_mode):
+            mode |= stat.S_ISGID | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+        elif executable:
+            mode |= stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+        imode = stat.S_IMODE(si.st_mode)
+        if imode ^ mode:
+            msg = "Set mode for {} from {} to {}".format(
+                pth, imode, mode)
+            # pth, stat.filemode(imode), stat.filemode(mode))
+            if self.batch or click.confirm(msg, default=True):
+                os.chmod(pth, mode)
+
+    def write_supervisor_conf(self, filename, content):
+        pth = join(DEFAULTSECTION.get('supervisor_dir'), filename)
+        self.check_overwrite(pth)
+        with open(pth, 'w') as fd:
+            fd.write(content)
+        self.must_restart('supervisor')
+
+    def setup_database(self, database, user, pwd, db_engine):
+        if db_engine == 'mysql':
+            def run(cmd):
+                self.runcmd('mysql -u root -p -e "{};"'.format(cmd))
+            run("create user '{user}'@'localhost' identified by '{pwd}'".format(**locals()))
+            run("create database {database} charset 'utf8'".format(**locals()))
+            run("grant all PRIVILEGES on {database}.* to '{user}'@'localhost'".format(**locals()))
+        elif db_engine == 'pgsql':
+            def run(cmd):
+                assert '"' not in cmd
+                self.runcmd('sudo -u postgres bash -c "psql -c \"{}\";"'.format(cmd))
+            run("CREATE USER {user} WITH PASSWORD '{pwd}';".format(**locals()))
+            run("CREATE DATABASE {database};".format(**locals()))
+            run("GRANT ALL PRIVILEGES ON DATABASE {database} TO {user};".format(**locals()))
+        else:
+            click.echo("No setup needed for " + db_engine)
+
+    def run_apt_install(self):
+        if len(self._system_packages) == 0:
+            return
+        click.echo("Must install {} system packages: {}".format(
+            len(self._system_packages), ' '.join(self._system_packages)))
         cmd = "apt-get install "
-        if batch:
+        if self.batch:
             cmd += "-y "
-        runcmd(cmd + packages)
+        self.runcmd(cmd + ' '.join(self._system_packages))
 
-def setup_database(database, user, pwd, db_engine):
-    if db_engine == 'mysql':
-        sub_command = "create user '{user}'@'localhost' identified by '{pwd}';".format(
-            **locals())
-        sub_command += "create database {database} charset 'utf8'; grant all PRIVILEGES on {database}.* to '{user}'@'localhost' ;".format(
-            **locals())
-        command = 'mysql -u root -p -e "{};"'.format(sub_command)
-    elif db_engine == 'pgsql':
-        sub_command = "psql -c \"CREATE USER {user} WITH PASSWORD '{pwd}';\"".format(
-            **locals())
-        sub_command += "CREATE DATABASE {database}; GRANT ALL PRIVILEGES ON DATABASE {database} TO {user};".format(
-            **locals())
-        command = 'sudo -u postgres bash -c "{};"'.format(sub_command)
-    else:
-        return
-    print("The DB command : {}".format(command))
-    runcmd(command)
+    def finish(self):
+        self.run_apt_install()
+        if len(self._services):
+            msg = "Restart services {}".format(self._services)
+            if self.batch or click.confirm(msg, default=True):
+                for srv in self._services:
+                    self.runcmd("service {} restart".format(srv))
+
 
 
 def check_usergroup(usergroup):
@@ -144,46 +242,7 @@ def check_usergroup(usergroup):
             return True
     return False
 
-def check_permissions(pth, batch=True, executable=False):
-    si = os.stat(pth)
 
-    # check whether group owner is what we want
-    usergroup = DEFAULTSECTION.get('usergroup')
-    if grp.getgrgid(si.st_gid).gr_name != usergroup:
-        if batch or click.confirm("Set group owner for {}".format(pth), default=True):
-            shutil.chown(pth, group=usergroup)
-
-    # check access permissions
-    mode = stat.S_IRGRP | stat.S_IWGRP
-    mode |= stat.S_IRUSR | stat.S_IWUSR
-    mode |= stat.S_IROTH
-    if stat.S_ISDIR(si.st_mode):
-        mode |= stat.S_ISGID | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
-    elif executable:
-        mode |= stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
-    imode = stat.S_IMODE(si.st_mode)
-    if imode ^ mode:
-        msg = "Set mode for {} from {} to {}".format(
-            pth, imode, mode)
-        # pth, stat.filemode(imode), stat.filemode(mode))
-        if batch or click.confirm(msg, default=True):
-            os.chmod(pth, mode)
-
-
-def write_supervisor_conf(filename, content):
-    pth = os.path.join(DEFAULTSECTION.get('supervisor_dir'), filename)
-    if os.path.exists(pth):
-        return False
-    with open(pth, 'w') as fd:
-        fd.write(content)
-    return True
-
-
-def run_in_env(env, cmd):
-    """env is the path of the venv"""
-    click.echo(cmd)
-    cmd = ". {}/bin/activate && {}".format(env, cmd)
-    runcmd(cmd)
 
 
 def install(packages, sys_executable=None):
@@ -196,18 +255,6 @@ def install(packages, sys_executable=None):
     else:
         subprocess.call([sys.executable, "-m", "pip", "install", packages])
 
-
-def yes_or_no(msg, yes="yY", no="nN"):
-    """Ask for confirmation without accepting a mere RETURN."""
-    click.echo(msg, nl=False)
-    while True:
-        c = click.getchar()
-        if c in yes:
-            click.echo(" Yes")
-            return True
-        elif c in no:
-            click.echo(" No")
-            return False
 
 # This will be decorated below. We cannot use decorators because we define the
 # list of options in CONFIGURE_OPTIONS
@@ -279,56 +326,47 @@ def configure(ctx, batch,
         CONFIG.write(fd)
     click.echo("Wrote config file " + conffile)
 
-    if not batch and not yes_or_no("Okay to start configuring your system [y or n]"):
+    if not i.yes_or_no("Okay to start configuring your system? [y or n]"):
         raise click.Abort()
 
-    must_restart = set()
+    i = Installer(batch)
 
     pth = DEFAULTSECTION.get('projects_root')
     if os.path.exists(pth):
-        check_permissions(pth, batch)
+        i.check_permissions(pth, batch)
     elif batch or click.confirm("Create projects root directory {}".format(pth), default=True):
         os.makedirs(pth, exist_ok=True)
-        check_permissions(pth)
+        i.check_permissions(pth)
 
     if batch or click.confirm("Upgrade the system", default=True):
-        runcmd("apt-get update")
-        runcmd("apt-get upgrade")
+        i.runcmd("apt-get update")
+        i.runcmd("apt-get upgrade")
 
     if batch or click.confirm("Install required system packages", default=True):
-        apt_install(
-            "git subversion python3 python3-dev python3-setuptools python3-pip supervisor",batch)
-        apt_install("nginx",batch)
-        apt_install("monit",batch)
+        i.apt_install(
+            "git subversion python3 python3-dev python3-setuptools python3-pip supervisor")
+        i.apt_install("nginx")
+        i.apt_install("monit")
 
         if DEFAULTSECTION.get('devtools'):
-            apt_install("tidy swig graphviz sqlite3",batch)
+            i.apt_install("tidy swig graphviz sqlite3")
 
         if DEFAULTSECTION.get('redis'):
-            apt_install("redis-server",batch)
+            i.apt_install("redis-server")
 
         for e in DB_ENGINES:
             if DEFAULTSECTION.get('db_engine') == e.name:
-                apt_install(e.apt_packages, batch)
+                i.apt_install(e.apt_packages)
 
         if DEFAULTSECTION.get('db_engine') == 'mysql':
-            runcmd("sudo mysql_secure_installation")
+            i.runcmd("sudo mysql_secure_installation")
 
         if DEFAULTSECTION.get('appy'):
-            apt_install("libreoffice python3-uno",batch)
+            i.apt_install("libreoffice python3-uno")
+            i.write_supervisor_conf('libreoffice.conf', LIBREOFFICE_SUPERVISOR_CONF)
 
-            msg = "Create supervisor config for LibreOffice"
-            if batch or click.confirm(msg, default=True):
-                if write_supervisor_conf('libreoffice.conf',
-                                         LIBREOFFICE_SUPERVISOR_CONF):
-                    must_restart.add('supervisor')
 
-    if len(must_restart):
-        msg = "Restart services {}".format(must_restart)
-        if batch or click.confirm(msg, default=True):
-            for srv in must_restart:
-                runcmd("service {} restart".format(srv))
-
+    i.finish()
     click.echo("Lino server setup completed.")
 
 params = [
@@ -367,9 +405,14 @@ def startsite(ctx, appname, prjname, batch, dev, linodev, server_url):
         raise click.UsageError(
             "This server is not yet configured. Did you run `sudo getlino.py configure`?")
 
-    prjpath = os.path.join(DEFAULTSECTION.get('projects_root'), prjname)
-    if os.path.exists(prjpath):
-        raise click.UsageError("Project directory {} already exists.".format(prjpath))
+    i = Installer(batch)
+
+    prjpath = join(DEFAULTSECTION.get('projects_root'), prjname)
+
+    i.check_overwrite(prjpath)
+
+    # if os.path.exists(prjpath):
+    #     raise click.UsageError("Project directory {} already exists.".format(prjpath))
 
     usergroup = DEFAULTSECTION.get('usergroup')
 
@@ -382,9 +425,9 @@ sudo adduser `whoami` {0}"""
         raise click.ClickException(msg.format(usergroup))
 
     projects_root = DEFAULTSECTION.get('projects_root')
-    project_dir = os.path.join(projects_root, prjname)
-    envdir = os.path.join(project_dir, DEFAULTSECTION.get('env_dir'))
-    full_repos_dir = os.path.join(envdir, DEFAULTSECTION.get('repos_dir'))
+    project_dir = join(projects_root, prjname)
+    envdir = join(project_dir, DEFAULTSECTION.get('env_dir'))
+    full_repos_dir = join(envdir, DEFAULTSECTION.get('repos_dir'))
     admin_name = DEFAULTSECTION.get('admin_name')
     admin_email = DEFAULTSECTION.get('admin_email')
     db_user = prjname
@@ -400,8 +443,8 @@ sudo adduser `whoami` {0}"""
         db_user = click.prompt("Database user name", default=db_user)
         db_password = click.prompt("Database user password", default=db_password)
 
-        if not yes_or_no("OK to create {} [y or n] ?".format(project_dir)):
-            raise click.Abort()
+    if not i.yes_or_no("OK to create {} ? [y or n]".format(project_dir)):
+        raise click.Abort()
 
     app = KNOWN_APPS[APPNAMES.index(appname)]
     app_package = app.settings_module.split('.')[0]
@@ -434,57 +477,68 @@ sudo adduser `whoami` {0}"""
         COOKIECUTTER_URL,
         no_input=True, extra_context=extra_context, output_dir=projects_root)
 
-    # TODO: create a log directory and a link to that directory in the project directory
-    # log_file = DEFAULTSECTION.get("log")
+    logdir = join(DEFAULTSECTION.get("log_root"), prjname)
+    if batch or click.confirm("Setup log directory {}".format(logdir), default=True):
+        i.check_overwrite(logdir)
+        os.makedirs(logdir, exist_ok=True)
+        i.check_permissions(logdir)
+        os.symlink(logdir, join(project_dir, 'log'))
+        # TODO: add cron logrotate entry
 
+    if batch or click.confirm("Create virtualenv in {}".format(envdir), default=True):
 
-    click.echo("Creating virtualenv {} ...".format(envdir))
-    virtualenv.create_environment(envdir)
+        i.batch = True  # remove for debugging
 
-    if not os.path.exists(full_repos_dir):
-        os.makedirs(full_repos_dir, exist_ok=True)
-    os.chdir(full_repos_dir)
+        virtualenv.create_environment(envdir)
 
-    if linodev:
-        runcmd("git clone https://github.com/lino-framework/lino")
-        run_in_env(envdir, "pip install -e lino")
-        runcmd("git clone https://github.com/lino-framework/xl")
-        run_in_env(envdir, "pip install -e xl")
-    else:
-        run_in_env(envdir, "pip install lino")
+        if not os.path.exists(full_repos_dir):
+            os.makedirs(full_repos_dir, exist_ok=True)
+        os.chdir(full_repos_dir)
 
-    if dev and app.git_repo:
-        runcmd("git clone {}".format(app.git_repo))
-        run_in_env(envdir, "pip install -e {}".format(repo_nickname))
-    else:
-        run_in_env(envdir, "pip install {}".format(app_package))
+        click.echo("Installing Lino and XL to ...".format(envdir))
+        if linodev:
+            i.runcmd("git clone --depth 1 -b master https://github.com/lino-framework/lino")
+            i.run_in_env(envdir, "pip install -e lino")
+            i.runcmd("git clone --depth 1 -b master https://github.com/lino-framework/xl")
+            i.run_in_env(envdir, "pip install -e xl")
+        else:
+            i.run_in_env(envdir, "pip install lino")
 
-    for e in DB_ENGINES:
-        if DEFAULTSECTION.get('db_engine') == e.name:
-            run_in_env(envdir, "pip install {}".format(e.python_packages))
+        if dev and app.git_repo:
+            i.runcmd("git clone --depth 1 -b master {}".format(app.git_repo))
+            i.run_in_env(envdir, "pip install -e {}".format(repo_nickname))
+        else:
+            i.run_in_env(envdir, "pip install {}".format(app_package))
 
+        for e in DB_ENGINES:
+            if DEFAULTSECTION.get('db_engine') == e.name:
+                i.run_in_env(envdir, "pip install {}".format(e.python_packages))
 
-    # currently getlino supports only nginx, but maybe we might add other web
-    # servers
+        if USE_NGINX:
+            i.run_in_env(envdir, "pip install -U uwsgi")
 
-    if True:
-        run_in_env(envdir, "pip install -U uwsgi")
-        nginx_file_name = "nginx-{}.conf".format(prjname)
-        nginx_sites_availabe_path = os.path.join(project_dir,'nginx',nginx_file_name)
-        runcmd("sudo cp {} /etc/nginx/sites-available".format(nginx_sites_availabe_path))
-        runcmd("sudo ln -s {} /etc/nginx/sites-enabled/".format(nginx_sites_availabe_path))
-        runcmd("sudo service nginx restart")
-        write_supervisor_conf('{}-uwsgi.conf'.format(prjname),
-                                         UWSGI_SUPERVISOR_CONF.format(prjname,project_dir,prjname))
-        runcmd("service supervisor restart")
-        # TODO: create an nginx config file for this site
+        i.batch = batch
+
+    if USE_NGINX:
+        if batch or click.confirm("Configure nginx", default=True):
+            filename = "{}.conf".format(prjname)
+            avpth = join(SITES_AVAILABLE, filename)
+            enpth = join(SITES_ENABLED, filename)
+            i.check_overwrite(enpth)
+            i.check_overwrite(avpth)
+            shutil.copyfile(join(project_dir, 'nginx', filename), avpth)
+            os.symlink(avpth, enpth)
+            i.must_restart("nginx")
+            i.write_supervisor_conf('{}-uwsgi.conf'.format(prjname),
+                 UWSGI_SUPERVISOR_CONF.format(prjname, project_dir, prjname))
 
     os.chdir(project_dir)
-    # no need to install appy here because manage configure will do this (if needed)
-    run_in_env(envdir, "python manage.py configure")
-    setup_database(prjname, db_user, db_password, db_engine)
-    run_in_env(envdir, "python manage.py prep --noinput")
-    run_in_env(envdir, "python manage.py collectstatic --noinput")
+    i.run_in_env(envdir, "python manage.py configure")
+    i.setup_database(prjname, db_user, db_password, db_engine)
+    i.run_in_env(envdir, "python manage.py prep --noinput")
+    i.run_in_env(envdir, "python manage.py collectstatic --noinput")
+
+    i.finish()
 
 
 @click.group()
