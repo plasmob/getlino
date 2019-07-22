@@ -123,9 +123,8 @@ def setup_database(database, user, pwd, db_engine):
     if db_engine == 'mysql':
         sub_command = "create user '{user}'@'localhost' identified by '{pwd}';".format(
             **locals())
-        sub_command += "create database {database} charset 'utf8'; grant all on {database}.* to {user} with grant option;".format(
+        sub_command += "create database {database} charset 'utf8'; grant all PRIVILEGES on {database}.* to '{user}'@'localhost' ;".format(
             **locals())
-        sub_command += " FLUSH PRIVILEGES"
         command = 'mysql -u root -p -e "{};"'.format(sub_command)
     elif db_engine == 'pgsql':
         sub_command = "psql -c \"CREATE USER {user} WITH PASSWORD '{pwd}';\"".format(
@@ -135,6 +134,7 @@ def setup_database(database, user, pwd, db_engine):
         command = 'sudo -u postgres bash -c "{};"'.format(sub_command)
     else:
         return
+    print("The DB command : {}".format(command))
     runcmd(command)
 
 
