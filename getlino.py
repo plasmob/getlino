@@ -87,6 +87,7 @@ add('--supervisor-dir', '/etc/supervisor/conf.d',
     "Directory for supervisor config files")
 add('--db-engine', 'sqlite', "Default database engine for new sites.",
     click.Choice([e.name for e in DB_ENGINES]))
+add('--env-root', '/usr/local/virtualenv', 'Base directory for default Python env')
 add('--env-dir', 'env', "Default virtualenv directory for new sites")
 add('--repos-dir', 'repositories', "Default repositories directory for new sites")
 add('--appy/--no-appy', True, "Whether this server provides appypod and LibreOffice")
@@ -209,7 +210,7 @@ def yes_or_no(msg, yes="yY", no="nN"):
 
 def configure(ctx, batch,
               projects_root, backups_root, log_root, usergroup,
-              supervisor_dir, db_engine, env_dir, repos_dir,
+              supervisor_dir, db_engine, env_dir, env_root, repos_dir,
               appy, redis, devtools, admin_name, admin_email):
     """
     Edit and/or create a configuration file and
@@ -231,7 +232,7 @@ def configure(ctx, batch,
         conffile = CONF_FILES[0]
         msg = "This will create configuration file {} [y or n] ?"
 
-    if batch or yes_or_no(msg.format(conffile)):
+    if batch or click.confirm(msg.format(conffile), default=True):
         pth = os.path.dirname(conffile)
         if not os.path.exists(pth):
             os.makedirs(pth, exist_ok=True)
@@ -273,6 +274,9 @@ def configure(ctx, batch,
         CONFIG.write(fd)
     click.echo("Wrote config file " + conffile)
 
+    if not batch and not yes_or_no("Okay to start configuring your system [y or n]"):
+        raise click.Abort()
+
     must_restart = set()
 
     pth = DEFAULTSECTION.get('projects_root')
@@ -282,11 +286,11 @@ def configure(ctx, batch,
         os.makedirs(pth, exist_ok=True)
         check_permissions(pth)
 
-    if batch or click.confirm("Upgrade the system"):
+    if batch or click.confirm("Upgrade the system", default=True):
         runcmd("apt-get update")
         runcmd("apt-get upgrade")
 
-    if batch or click.confirm("Install required system packages"):
+    if batch or click.confirm("Install required system packages", default=True):
         apt_install(
             "git subversion python3 python3-dev python3-setuptools python3-pip supervisor",batch)
         apt_install("nginx",batch)
@@ -300,20 +304,23 @@ def configure(ctx, batch,
 
         for e in DB_ENGINES:
             if DEFAULTSECTION.get('db_engine') == e.name:
-                apt_install(e.apt_packages,batch)
-            if DEFAULTSECTION.get('db_engine') == 'mysql':
-                runcmd("sudo mysql_secure_installation")
+                apt_install(e.apt_packages, batch)
+
+        if DEFAULTSECTION.get('db_engine') == 'mysql':
+            runcmd("sudo mysql_secure_installation")
+
         if DEFAULTSECTION.get('appy'):
             apt_install("libreoffice python3-uno",batch)
 
             msg = "Create supervisor config for LibreOffice"
-            if batch or click.confirm(msg):
+            if batch or click.confirm(msg, default=True):
                 if write_supervisor_conf('libreoffice.conf',
                                          LIBREOFFICE_SUPERVISOR_CONF):
                     must_restart.add('supervisor')
+
     if len(must_restart):
         msg = "Restart services {}".format(must_restart)
-        if batch or click.confirm(msg):
+        if batch or click.confirm(msg, default=True):
             for srv in must_restart:
                 runcmd("service {} restart".format(srv))
 
@@ -334,13 +341,12 @@ configure = click.Command('configure', callback=configure,
 @click.option('--batch/--no-batch', default=False, help=BATCH_HELP)
 @click.option('--dev/--no-dev', default=False,
               help="Whether to use development version of the application")
+@click.option('--linodev/--no-linodev', default=False,
+              help="Whether to use development version of Lino")
 @click.option('--server_url', default='https://myprjname.example.com',
               help="The URL where this site is published")
 @click.pass_context
-def startsite(ctx, appname, prjname,
-              batch, dev, server_url,
-              db_user='lino',
-              db_password='1234'):
+def startsite(ctx, appname, prjname, batch, dev, linodev, server_url):
     """
     Create a new Lino site.
 
@@ -373,11 +379,11 @@ sudo adduser `whoami` {0}"""
     projects_root = DEFAULTSECTION.get('projects_root')
     project_dir = os.path.join(projects_root, prjname)
     envdir = os.path.join(project_dir, DEFAULTSECTION.get('env_dir'))
-    db_engine = DEFAULTSECTION.get('db_engine')
     full_repos_dir = os.path.join(envdir, DEFAULTSECTION.get('repos_dir'))
     admin_name = DEFAULTSECTION.get('admin_name')
     admin_email = DEFAULTSECTION.get('admin_email')
-    db_password = "123456"  # todo: generate random password
+    db_user = prjname
+    db_password = "1234"  # todo: generate random password
 
     click.echo('Creating a new production site into {0} using Lino {1} ...'.format(project_dir, appname))
 
@@ -385,7 +391,7 @@ sudo adduser `whoami` {0}"""
         server_url = click.prompt("Server URL ", default=server_url)
         admin_name = click.prompt("Administrator's full name", default=admin_name)
         admin_email = click.prompt("Administrator's full name", default=admin_email)
-        db_user = click.prompt("Database user name", default=prjname)
+        db_user = click.prompt("Database user name", default=db_user)
         db_password = click.prompt("Database user password", default=db_password)
 
         if not yes_or_no("OK to create {} [y or n] ?".format(project_dir)):
@@ -397,18 +403,18 @@ sudo adduser `whoami` {0}"""
 
     extra_context = {
         "prjname": prjname,
-        # "projects_root": projects_root,
-        # "reposdir": repos_dir,
+        "projects_root": projects_root,
+        "reposdir": full_repos_dir,
         "appname": appname,
         # "app_git_repo": app_git_repo,
         # "app_package": app_package,
         "app_settings": app.settings_module,
-        # "use_app_dev": "y" if dev else 'n',
-        # "use_lino_dev": "y" if dev else 'n',
+        "use_app_dev": "y" if dev else 'n',
+        "use_lino_dev": "y" if linodev else 'n',
         "server_url": server_url,
         "admin_full_name": admin_name,
         "admin_email": admin_email,
-        "db_engine": db_engine,
+        "db_engine": DEFAULTSECTION.get('db_engine'),
         "db_user": db_user,
         "db_password": db_password,
         "db_name": prjname,
@@ -422,18 +428,18 @@ sudo adduser `whoami` {0}"""
         COOKIECUTTER_URL,
         no_input=True, extra_context=extra_context, output_dir=projects_root)
 
+    # TODO: create a log directory and a link to that directory in the project directory
+    # log_file = DEFAULTSECTION.get("log")
+
+
     click.echo("Creating virtualenv {} ...".format(envdir))
     virtualenv.create_environment(envdir)
 
-    for e in DB_ENGINES:
-        if DEFAULTSECTION.get('db_engine') == e.name:
-            run_in_env(envdir,"pip install {}".format(e.python_packages))
-            apt_install(e.apt_packages,batch)
     if not os.path.exists(full_repos_dir):
         os.makedirs(full_repos_dir, exist_ok=True)
     os.chdir(full_repos_dir)
 
-    if dev:
+    if linodev:
         runcmd("git clone https://github.com/lino-framework/lino")
         run_in_env(envdir, "pip install -e lino")
         runcmd("git clone https://github.com/lino-framework/xl")
@@ -447,9 +453,16 @@ sudo adduser `whoami` {0}"""
     else:
         run_in_env(envdir, "pip install {}".format(app_package))
 
-    run_in_env(envdir, "pip install -U uwsgi")
+
+    # currently getlino supports only nginx, but maybe we might add other web
+    # servers
+
+    if True:
+        run_in_env(envdir, "pip install -U uwsgi")
+        # TODO: create an nginx config file for this site
+
     os.chdir(project_dir)
-    run_in_env(envdir, "pip install -U svn+https://svn.forge.pallavi.be/appy-dev/dev1#egg=appy")
+    # no need to install appy here because manage configure will do this (if needed)
     run_in_env(envdir, "python manage.py configure")
     setup_database(prjname, db_user, db_password, db_engine)
     run_in_env(envdir, "python manage.py prep --noinput")
