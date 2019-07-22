@@ -243,6 +243,8 @@ def configure(ctx, batch,
         if not os.access(conffile, os.W_OK):
             raise click.ClickException(
                 "No write permission for file {}".format(conffile))
+    else:
+        raise click.Abort()
 
 
     # confvars = """projects_root backups_root usergroup
@@ -270,8 +272,6 @@ def configure(ctx, batch,
     with open(conffile, 'w') as fd:
         CONFIG.write(fd)
     click.echo("Wrote config file " + conffile)
-    else:
-        raise click.Abort()
 
     must_restart = set()
 
