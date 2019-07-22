@@ -226,14 +226,21 @@ def configure(ctx, batch,
     # the user file. Otherwise write the system-wide file.
     if len(FOUND_CONFIG_FILES) == 1:
         conffile = FOUND_CONFIG_FILES[0]
-        click.echo("Updating configuration file {}".format(conffile))
-        if not os.access(conffile, os.W_OK):
-            raise click.ClickException(
-                "No write permission for file {}".format(conffile))
+        msg = "This will update configuration file {} [y or n] ?"
     else:
         conffile = CONF_FILES[0]
-        click.echo("Creating configuration file {}".format(conffile))
+        msg = "This will create configuration file {} [y or n] ?"
+
+    if batch or yes_or_no(msg.format(conffile)):
+        pth = os.path.dirname(conffile)
+        if not os.path.exists(pth):
+            os.makedirs(pth, exist_ok=True)
+
         if not os.access(os.path.dirname(conffile), os.W_OK):
+            raise click.ClickException(
+                "No write permission for file {}".format(conffile))
+
+        if not os.access(conffile, os.W_OK):
             raise click.ClickException(
                 "No write permission for file {}".format(conffile))
 
@@ -260,15 +267,9 @@ def configure(ctx, batch,
             # conf_values[k] = answer
             CONFIG.set(CONFIG.default_section, k, str(answer))
 
-    if batch or yes_or_no("Write config file {} [y or n] ?".format(
-            conffile)):
-        pth = os.path.dirname(conffile)
-        if not os.path.exists(pth):
-            os.makedirs(pth, exist_ok=True)
-
-        with open(conffile, 'w') as fd:
-            CONFIG.write(fd)
-        click.echo("Wrote config file " + conffile)
+    with open(conffile, 'w') as fd:
+        CONFIG.write(fd)
+    click.echo("Wrote config file " + conffile)
     else:
         raise click.Abort()
 
