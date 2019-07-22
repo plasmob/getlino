@@ -98,9 +98,8 @@ add('--supervisor-dir', '/etc/supervisor/conf.d',
     "Directory for supervisor config files")
 add('--db-engine', 'sqlite', "Default database engine for new sites.",
     click.Choice([e.name for e in DB_ENGINES]))
-add('--env-root', '/usr/local/virtualenv', 'Base directory for default Python env')
-add('--env-dir', 'env', "Default virtualenv directory for new sites")
-add('--repos-dir', 'repositories', "Default repositories directory for new sites")
+add('--env-dir', 'env', "link to virtualenv (relative to project dir)")
+add('--repos-dir', 'repositories', "link to repositories (relative to virtualenv)")
 add('--appy/--no-appy', True, "Whether this server provides appypod and LibreOffice")
 add('--redis/--no-redis', True, "Whether this server provides redis")
 add('--devtools/--no-devtools', False,
@@ -262,7 +261,7 @@ def install(packages, sys_executable=None):
 
 def configure(ctx, batch,
               projects_root, backups_root, log_root, usergroup,
-              supervisor_dir, db_engine, env_dir, env_root, repos_dir,
+              supervisor_dir, db_engine, env_dir, repos_dir,
               appy, redis, devtools, admin_name, admin_email):
     """
     Edit and/or create a configuration file and
@@ -386,10 +385,12 @@ configure = click.Command('configure', callback=configure,
               help="Whether to use development version of the application")
 @click.option('--linodev/--no-linodev', default=False,
               help="Whether to use development version of Lino")
-@click.option('--server_url', default='https://myprjname.example.com',
+@click.option('--shared-env',
+              help="Full path of a shared virtualenv to use for this site")
+@click.option('--server-url', default='https://myprjname.example.com',
               help="The URL where this site is published")
 @click.pass_context
-def startsite(ctx, appname, prjname, batch, dev, linodev, server_url):
+def startsite(ctx, appname, prjname, batch, dev, linodev, shared_env, server_url):
     """
     Create a new Lino site.
 
@@ -426,8 +427,8 @@ sudo adduser `whoami` {0}"""
 
     projects_root = DEFAULTSECTION.get('projects_root')
     project_dir = join(projects_root, prjname)
-    envdir = join(project_dir, DEFAULTSECTION.get('env_dir'))
-    full_repos_dir = join(envdir, DEFAULTSECTION.get('repos_dir'))
+    # envdir = join(project_dir, DEFAULTSECTION.get('env_dir'))
+    # full_repos_dir = join(envdir, DEFAULTSECTION.get('repos_dir'))
     admin_name = DEFAULTSECTION.get('admin_name')
     admin_email = DEFAULTSECTION.get('admin_email')
     db_user = prjname
@@ -453,7 +454,8 @@ sudo adduser `whoami` {0}"""
     extra_context = {
         "prjname": prjname,
         "projects_root": projects_root,
-        "reposdir": full_repos_dir,
+        "repos_dir": DEFAULTSECTION.get('repos_dir'),
+        "env_dir": DEFAULTSECTION.get('env_dir'),
         "appname": appname,
         # "app_git_repo": app_git_repo,
         # "app_package": app_package,
@@ -485,27 +487,55 @@ sudo adduser `whoami` {0}"""
         os.symlink(logdir, join(project_dir, 'log'))
         # TODO: add cron logrotate entry
 
-    if batch or click.confirm("Create virtualenv in {}".format(envdir), default=True):
+    os.makedirs(join(project_dir, 'media'), exist_ok=True)
+
+    is_new_env = True
+    if shared_env:
+        if not os.path.exists(shared_env):
+            os.makedirs(shared_env, exist_ok=True)
+        envdir = join(shared_env, DEFAULTSECTION.get('env_dir'))
+        if os.path.exists(envdir):
+            is_new_env = False
+            msg = "Update shared virtualenv in {}"
+        else:
+            msg = "Create shared virtualenv in {}"
+        static_dir = join(shared_env, 'static')
+        if not os.path.exists(static_dir):
+            os.makedirs(static_dir, exist_ok=True)
+        os.symlink(static_dir, join(project_dir, 'static'))
+    else:
+        envdir = join(project_dir, DEFAULTSECTION.get('env_dir'))
+        msg = "Create local virtualenv in {}"
+
+    full_repos_dir = join(envdir, DEFAULTSECTION.get('repos_dir'))
+
+    if batch or click.confirm(msg.format(envdir), default=True):
 
         i.batch = True  # remove for debugging
 
-        virtualenv.create_environment(envdir)
+        if is_new_env:
+            virtualenv.create_environment(envdir)
+            if not os.path.exists(full_repos_dir):
+                os.makedirs(full_repos_dir, exist_ok=True)
 
-        if not os.path.exists(full_repos_dir):
-            os.makedirs(full_repos_dir, exist_ok=True)
-        os.chdir(full_repos_dir)
+        if shared_env:
+            os.symlink(envdir, join(project_dir, DEFAULTSECTION.get('env_dir')))
 
         click.echo("Installing Lino and XL to ...".format(envdir))
+        os.chdir(full_repos_dir)
         if linodev:
-            i.runcmd("git clone --depth 1 -b master https://github.com/lino-framework/lino")
+            if not os.path.exists('lino'):
+                i.runcmd("git clone --depth 1 -b master https://github.com/lino-framework/lino")
             i.run_in_env(envdir, "pip install -e lino")
-            i.runcmd("git clone --depth 1 -b master https://github.com/lino-framework/xl")
+            if not os.path.exists('xl'):
+                i.runcmd("git clone --depth 1 -b master https://github.com/lino-framework/xl")
             i.run_in_env(envdir, "pip install -e xl")
         else:
             i.run_in_env(envdir, "pip install lino")
 
         if dev and app.git_repo:
-            i.runcmd("git clone --depth 1 -b master {}".format(app.git_repo))
+            if not os.path.exists(repo_nickname):
+                i.runcmd("git clone --depth 1 -b master {}".format(app.git_repo))
             i.run_in_env(envdir, "pip install -e {}".format(repo_nickname))
         else:
             i.run_in_env(envdir, "pip install {}".format(app_package))
