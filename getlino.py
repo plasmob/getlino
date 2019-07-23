@@ -17,11 +17,6 @@ from cookiecutter.main import cookiecutter
 
 from os.path import join
 
-DbEngine = collections.namedtuple(
-    'DbEngine', ('name', 'apt_packages', 'python_packages'))
-KnownApp = collections.namedtuple(
-    'KnownApp', ('name', 'settings_module', 'git_repo'))
-
 # currently getlino supports only nginx, maybe we might add other web servers
 USE_NGINX = True
 SITES_AVAILABLE = '/etc/nginx/sites-available'
@@ -42,13 +37,18 @@ UWSGI_SUPERVISOR_CONF = """
 command = /usr/local/bin/uwsgi --ini {}/nginx/{}-uwsgi.ini
 """
 
+# Note that the DbEngine.name field must match the Django engine name
+DbEngine = collections.namedtuple(
+    'DbEngine', ('name', 'apt_packages', 'python_packages'))
 DB_ENGINES = [
-    DbEngine('pgsql', "postgresql postgresql-contrib", "psycopg2-binary"),
+    DbEngine('postgresql', "postgresql postgresql-contrib", "psycopg2-binary"),
     DbEngine(
         'mysql', "mysql-server libmysqlclient-dev python-dev libffi-dev libssl-dev python-mysqldb", "mysqlclient"),
-    DbEngine('sqlite', "", "")
+    DbEngine('sqlite3', "", "")
 ]
 
+KnownApp = collections.namedtuple(
+    'KnownApp', ('name', 'settings_module', 'git_repo'))
 KNOWN_APPS = [
     KnownApp("noi", "lino_noi.lib.noi.settings",
              "https://github.com/lino-framework/noi"),
@@ -74,39 +74,6 @@ CONFIG = configparser.ConfigParser()
 FOUND_CONFIG_FILES = CONFIG.read(CONF_FILES)
 DEFAULTSECTION = CONFIG[CONFIG.default_section]
 
-
-CONFIGURE_OPTIONS = []
-
-
-def add(spec, default, help, type=None):
-
-    kwargs = dict()
-    kwargs.update(help=help)
-    if type is not None:
-        kwargs.update(type=type)
-    o = click.Option([spec], **kwargs)
-    o.default = DEFAULTSECTION.get(o.name, default)
-    CONFIGURE_OPTIONS.append(o)
-
-
-# must be same order as in signature of configure command below
-add('--projects-root', '/usr/local/lino', 'Base directory for Lino sites')
-add('--backups-root', '/var/backups/lino', 'Base directory for backups')
-add('--log-root', '/var/log/lino', 'Base directory for log files')
-add('--usergroup', 'www-data', "User group for files to be shared with the web server")
-add('--supervisor-dir', '/etc/supervisor/conf.d',
-    "Directory for supervisor config files")
-add('--db-engine', 'sqlite', "Default database engine for new sites.",
-    click.Choice([e.name for e in DB_ENGINES]))
-add('--env-dir', 'env', "link to virtualenv (relative to project dir)")
-add('--repos-dir', 'repositories', "link to repositories (relative to virtualenv)")
-add('--appy/--no-appy', True, "Whether this server provides appypod and LibreOffice")
-add('--redis/--no-redis', True, "Whether this server provides redis")
-add('--devtools/--no-devtools', False,
-    "Whether this server provides developer tools (build docs and run tests)")
-add('--admin-name', 'Joe Dow', "The full name of the server maintainer")
-add('--admin-email', 'joe@example.com',
-    "The email address of the server maintainer")
 
 class Installer(object):
     def __init__(self, batch=False):
@@ -199,7 +166,9 @@ class Installer(object):
         self.must_restart('supervisor')
 
     def setup_database(self, database, user, pwd, db_engine):
-        if db_engine == 'mysql':
+        if db_engine == 'sqlite3':
+            click.echo("No setup needed for " + db_engine)
+        elif db_engine == 'mysql':
             def run(cmd):
                 self.runcmd('mysql -u root -p -e "{};"'.format(cmd))
             run("create user '{user}'@'localhost' identified by '{pwd}'".format(**locals()))
@@ -213,13 +182,13 @@ class Installer(object):
             run("CREATE DATABASE {database};".format(**locals()))
             run("GRANT ALL PRIVILEGES ON DATABASE {database} TO {user};".format(**locals()))
         else:
-            click.echo("No setup needed for " + db_engine)
+            click.echo("Warning: Don't know how to setup " + db_engine)
 
     def run_apt_install(self):
         if len(self._system_packages) == 0:
             return
-        click.echo("Must install {} system packages: {}".format(
-            len(self._system_packages), ' '.join(self._system_packages)))
+        # click.echo("Must install {} system packages: {}".format(
+        #     len(self._system_packages), ' '.join(self._system_packages)))
         cmd = "apt-get install "
         if self.batch:
             cmd += "-y "
@@ -255,14 +224,54 @@ def install(packages, sys_executable=None):
         subprocess.call([sys.executable, "-m", "pip", "install", packages])
 
 
-# This will be decorated below. We cannot use decorators because we define the
-# list of options in CONFIGURE_OPTIONS
+# The configure command will be decorated below. We cannot use decorators
+# because we define the list of options in CONFIGURE_OPTIONS because we need
+# that list also for asking questions using the help text.
+
+CONFIGURE_OPTIONS = []
+
+
+def add(spec, default, help, type=None):
+
+    kwargs = dict()
+    kwargs.update(help=help)
+    if type is not None:
+        kwargs.update(type=type)
+    o = click.Option([spec], **kwargs)
+    o.default = DEFAULTSECTION.get(o.name, default)
+    CONFIGURE_OPTIONS.append(o)
+
+
+# must be same order as in signature of configure command below
+add('--prod/--no-prod', True, "Whether this is a production server")
+add('--projects-root', '/usr/local/lino', 'Base directory for Lino sites')
+add('--shared-dir', '', "Directory with shared virtualenv and static files to use for new sites"
+                        " (leave blank to create new env and static for each site)")
+add('--backups-root', '/var/backups/lino', 'Base directory for backups')
+add('--log-root', '/var/log/lino', 'Base directory for log files')
+add('--usergroup', 'www-data', "User group for files to be shared with the web server")
+add('--supervisor-dir', '/etc/supervisor/conf.d',
+    "Directory for supervisor config files")
+add('--db-engine', 'sqlite3', "Default database engine for new sites.",
+    click.Choice([e.name for e in DB_ENGINES]))
+add('--env-dir', 'env', "link to virtualenv (relative to project dir)")
+add('--repos-dir', 'repositories', "link to repositories (relative to virtualenv)")
+add('--appy/--no-appy', True, "Whether this server provides appypod and LibreOffice")
+add('--redis/--no-redis', True, "Whether this server provides redis")
+add('--devtools/--no-devtools', False,
+    "Whether this server provides developer tools (build docs and run tests)")
+add('--server-domain', 'localhost', "Domain name of this server")
+add('--https/--no-https', False, "Whether this server uses secure http")
+add('--admin-name', 'Joe Dow', "The full name of the server administrator")
+add('--admin-email', 'joe@example.com',
+    "The email address of the server administrator")
 
 
 def configure(ctx, batch,
-              projects_root, backups_root, log_root, usergroup,
+              prod, projects_root, shared_dir, backups_root, log_root, usergroup,
               supervisor_dir, db_engine, env_dir, repos_dir,
-              appy, redis, devtools, admin_name, admin_email):
+              appy, redis, devtools, server_domain, https,
+              admin_name, admin_email):
     """
     Edit and/or create a configuration file and
     set up this machine to become a Lino production server
@@ -273,6 +282,8 @@ def configure(ctx, batch,
         # reconfigure is not yet supported
         raise click.UsageError("Found multiple config files: {}".format(
             FOUND_CONFIG_FILES))
+
+    i = Installer(batch)
 
     # write config file. if there is no system-wide file but a user file, write
     # the user file. Otherwise write the system-wide file.
@@ -298,17 +309,8 @@ def configure(ctx, batch,
     else:
         raise click.Abort()
 
-
-    # confvars = """projects_root backups_root usergroup
-    # db_engine repos_dir supervisor_dir env_dir
-    # appy redis devtools admin_name admin_email""".split()
-
-    # conf_values = locals()
-
     for p in CONFIGURE_OPTIONS:
         k = p.name
-        # if k == "batch":
-        #     continue
         v = locals()[k]
         if batch:
             CONFIG.set(CONFIG.default_section, k, str(v))
@@ -325,10 +327,8 @@ def configure(ctx, batch,
         CONFIG.write(fd)
     click.echo("Wrote config file " + conffile)
 
-    if not i.yes_or_no("Okay to start configuring your system? [y or n]"):
+    if not i.yes_or_no("Okay to configure your system using above options? [y or n]"):
         raise click.Abort()
-
-    i = Installer(batch)
 
     pth = DEFAULTSECTION.get('projects_root')
     if os.path.exists(pth):
@@ -337,20 +337,25 @@ def configure(ctx, batch,
         os.makedirs(pth, exist_ok=True)
         i.check_permissions(pth)
 
-    if batch or click.confirm("Upgrade the system", default=True):
-        i.runcmd("apt-get update")
-        i.runcmd("apt-get upgrade")
+    prod = DEFAULTSECTION.getboolean('prod')
 
-    if batch or click.confirm("Install required system packages", default=True):
+    if prod:
+        if batch or click.confirm("Upgrade the system", default=True):
+            i.runcmd("apt-get update")
+            i.runcmd("apt-get upgrade")
+
+    if True:  # batch or click.confirm("Install required system packages", default=True):
         i.apt_install(
             "git subversion python3 python3-dev python3-setuptools python3-pip supervisor")
-        i.apt_install("nginx")
-        i.apt_install("monit")
 
-        if DEFAULTSECTION.get('devtools'):
+        if prod:
+            i.apt_install("nginx")
+            i.apt_install("monit")
+
+        if DEFAULTSECTION.getboolean('devtools'):
             i.apt_install("tidy swig graphviz sqlite3")
 
-        if DEFAULTSECTION.get('redis'):
+        if DEFAULTSECTION.getboolean('redis'):
             i.apt_install("redis-server")
 
         for e in DB_ENGINES:
@@ -360,10 +365,9 @@ def configure(ctx, batch,
         if DEFAULTSECTION.get('db_engine') == 'mysql':
             i.runcmd("sudo mysql_secure_installation")
 
-        if DEFAULTSECTION.get('appy'):
+        if DEFAULTSECTION.getboolean('appy'):
             i.apt_install("libreoffice python3-uno")
             i.write_supervisor_conf('libreoffice.conf', LIBREOFFICE_SUPERVISOR_CONF)
-
 
     i.finish()
     click.echo("Lino server setup completed.")
@@ -385,12 +389,12 @@ configure = click.Command('configure', callback=configure,
               help="Whether to use development version of the application")
 @click.option('--linodev/--no-linodev', default=False,
               help="Whether to use development version of Lino")
-@click.option('--shared-env',
-              help="Full path of a shared virtualenv to use for this site")
-@click.option('--server-url', default='https://myprjname.example.com',
-              help="The URL where this site is published")
+# @click.option('--shared-env',
+#               help="Full path of a shared virtualenv to use for this site")
+# @click.option('--server-url', default='https://myprjname.example.com',
+#               help="The URL where this site is published")
 @click.pass_context
-def startsite(ctx, appname, prjname, batch, dev, linodev, shared_env, server_url):
+def startsite(ctx, appname, prjname, batch, dev, linodev):
     """
     Create a new Lino site.
 
@@ -415,6 +419,24 @@ def startsite(ctx, appname, prjname, batch, dev, linodev, shared_env, server_url
     # if os.path.exists(prjpath):
     #     raise click.UsageError("Project directory {} already exists.".format(prjpath))
 
+    prod = DEFAULTSECTION.getboolean('prod')
+    projects_root = DEFAULTSECTION.get('projects_root')
+    project_dir = join(projects_root, prjname)
+    shared_dir = DEFAULTSECTION.get('shared_dir')
+    # envdir = join(project_dir, DEFAULTSECTION.get('env_dir'))
+    # full_repos_dir = join(envdir, DEFAULTSECTION.get('repos_dir'))
+    admin_name = DEFAULTSECTION.get('admin_name')
+    admin_email = DEFAULTSECTION.get('admin_email')
+    server_url = ("https://" if DEFAULTSECTION.getboolean('https') else "http://") \
+                 + prjname + "." + DEFAULTSECTION.get('server_domain')
+    db_user = prjname
+    db_password = "1234"  # todo: generate random password
+    db_engine = DEFAULTSECTION.get('db_engine')
+
+    if not prod and not shared_dir:
+        raise click.ClickException(
+            "Cannot startsite in a development environment without a shared-dir!")
+
     usergroup = DEFAULTSECTION.get('usergroup')
 
     if check_usergroup(usergroup) or True:
@@ -425,26 +447,20 @@ ERROR: you don't belong to the {0} user group.  Maybe you want to run:
 sudo adduser `whoami` {0}"""
         raise click.ClickException(msg.format(usergroup))
 
-    projects_root = DEFAULTSECTION.get('projects_root')
-    project_dir = join(projects_root, prjname)
-    # envdir = join(project_dir, DEFAULTSECTION.get('env_dir'))
-    # full_repos_dir = join(envdir, DEFAULTSECTION.get('repos_dir'))
-    admin_name = DEFAULTSECTION.get('admin_name')
-    admin_email = DEFAULTSECTION.get('admin_email')
-    db_user = prjname
-    db_password = "1234"  # todo: generate random password
-    db_engine = DEFAULTSECTION.get('db_engine')
-
-    click.echo('Creating a new production site into {0} using Lino {1} ...'.format(project_dir, appname))
+    click.echo('Creating a new {0} site into {1} using Lino {2} ...'.format(
+        "production" if prod else "development", project_dir, appname))
 
     if not batch:
-        server_url = click.prompt("Server URL ", default=server_url)
-        admin_name = click.prompt("Administrator's full name", default=admin_name)
-        admin_email = click.prompt("Administrator's full name", default=admin_email)
-        db_user = click.prompt("Database user name", default=db_user)
-        db_password = click.prompt("Database user password", default=db_password)
+        shared_dir = click.prompt("Shared directory", default=shared_dir)
+        if prod:
+            server_url = click.prompt("Server URL ", default=server_url)
+            admin_name = click.prompt("Administrator's full name", default=admin_name)
+            admin_email = click.prompt("Administrator's full name", default=admin_email)
+        if db_engine != "sqlite3":
+            db_user = click.prompt("Database user name", default=db_user)
+            db_password = click.prompt("Database user password", default=db_password)
 
-    if not i.yes_or_no("OK to create {} ? [y or n]".format(project_dir)):
+    if not i.yes_or_no("OK to create {} with above options ? [y or n]".format(project_dir)):
         raise click.Abort()
 
     app = KNOWN_APPS[APPNAMES.index(appname)]
@@ -453,15 +469,20 @@ sudo adduser `whoami` {0}"""
 
     extra_context = {
         "prjname": prjname,
+        "appname": appname,
+        "prod": prod,
         "projects_root": projects_root,
+        "project_dir": project_dir,
         "repos_dir": DEFAULTSECTION.get('repos_dir'),
         "env_dir": DEFAULTSECTION.get('env_dir'),
-        "appname": appname,
         "repo_nickname": repo_nickname,
         "app_package": app_package,
-        "app_settings": app.settings_module,
-        "use_app_dev": "y" if dev else 'n',
-        "use_lino_dev": "y" if linodev else 'n',
+        "app_settings_module": app.settings_module,
+        # cookiecutter supports standard Python types
+        "use_app_dev": dev,
+        "use_lino_dev": linodev,
+        # "use_app_dev": "y" if dev else 'n',
+        # "use_lino_dev": "y" if linodev else 'n',
         "server_url": server_url,
         "admin_full_name": admin_name,
         "admin_email": admin_email,
@@ -474,51 +495,58 @@ sudo adduser `whoami` {0}"""
 
     os.umask(0o002)
 
+    click.echo("cookiecutter context is {}...".format(extra_context))
     click.echo("Running cookiecutter {}...".format(COOKIECUTTER_URL))
     cookiecutter(
         COOKIECUTTER_URL,
         no_input=True, extra_context=extra_context, output_dir=projects_root)
 
-    logdir = join(DEFAULTSECTION.get("log_root"), prjname)
-    if batch or click.confirm("Setup log directory {}".format(logdir), default=True):
-        i.check_overwrite(logdir)
-        os.makedirs(logdir, exist_ok=True)
-        i.check_permissions(logdir)
-        os.symlink(logdir, join(project_dir, 'log'))
-        # TODO: add cron logrotate entry
+    if prod:
+        logdir = join(DEFAULTSECTION.get("log_root"), prjname)
+        if batch or click.confirm("Setup log directory {}".format(logdir), default=True):
+            i.check_overwrite(logdir)
+            os.makedirs(logdir, exist_ok=True)
+            i.check_permissions(logdir)
+            os.symlink(logdir, join(project_dir, 'log'))
+            # TODO: add cron logrotate entry
 
     os.makedirs(join(project_dir, 'media'), exist_ok=True)
 
     is_new_env = True
-    if shared_env:
-        if not os.path.exists(shared_env):
-            os.makedirs(shared_env, exist_ok=True)
-        envdir = join(shared_env, DEFAULTSECTION.get('env_dir'))
+    if shared_dir:
+        if not os.path.exists(shared_dir):
+            os.makedirs(shared_dir, exist_ok=True)
+        envdir = join(shared_dir, DEFAULTSECTION.get('env_dir'))
         if os.path.exists(envdir):
             is_new_env = False
-            msg = "Update shared virtualenv in {}"
+            venv_msg = "Update shared virtualenv in {}"
         else:
-            msg = "Create shared virtualenv in {}"
-        static_dir = join(shared_env, 'static')
-        if not os.path.exists(static_dir):
-            os.makedirs(static_dir, exist_ok=True)
-        os.symlink(static_dir, join(project_dir, 'static'))
+            venv_msg = "Create shared virtualenv in {}"
     else:
         envdir = join(project_dir, DEFAULTSECTION.get('env_dir'))
-        msg = "Create local virtualenv in {}"
+        venv_msg = "Create local virtualenv in {}"
 
-    full_repos_dir = join(envdir, DEFAULTSECTION.get('repos_dir'))
+    if is_new_env:
+        if batch or click.confirm(venv_msg.format(envdir), default=True):
+            virtualenv.create_environment(envdir)
 
-    if batch or click.confirm(msg.format(envdir), default=True):
+    if prod:
+
+        if shared_dir:
+            static_dir = join(shared_dir, 'static')
+            if not os.path.exists(static_dir):
+                os.makedirs(static_dir, exist_ok=True)
+            os.symlink(static_dir, join(project_dir, 'static'))
+
+        full_repos_dir = join(envdir, DEFAULTSECTION.get('repos_dir'))
 
         i.batch = True  # remove for debugging
 
         if is_new_env:
-            virtualenv.create_environment(envdir)
             if not os.path.exists(full_repos_dir):
                 os.makedirs(full_repos_dir, exist_ok=True)
 
-        if shared_env:
+        if shared_dir:
             os.symlink(envdir, join(project_dir, DEFAULTSECTION.get('env_dir')))
 
         click.echo("Installing Lino and XL to ...".format(envdir))
@@ -549,24 +577,29 @@ sudo adduser `whoami` {0}"""
 
         i.batch = batch
 
-    if USE_NGINX:
-        if batch or click.confirm("Configure nginx", default=True):
-            filename = "{}.conf".format(prjname)
-            avpth = join(SITES_AVAILABLE, filename)
-            enpth = join(SITES_ENABLED, filename)
-            i.check_overwrite(enpth)
-            i.check_overwrite(avpth)
-            shutil.copyfile(join(project_dir, 'nginx', filename), avpth)
-            os.symlink(avpth, enpth)
-            i.must_restart("nginx")
-            i.write_supervisor_conf('{}-uwsgi.conf'.format(prjname),
-                 UWSGI_SUPERVISOR_CONF.format(prjname, project_dir, prjname))
+        if USE_NGINX:
+            if batch or click.confirm("Configure nginx", default=True):
+                filename = "{}.conf".format(prjname)
+                avpth = join(SITES_AVAILABLE, filename)
+                enpth = join(SITES_ENABLED, filename)
+                i.check_overwrite(enpth)
+                i.check_overwrite(avpth)
+                shutil.copyfile(join(project_dir, 'nginx', filename), avpth)
+                os.symlink(avpth, enpth)
+                i.must_restart("nginx")
+                i.write_supervisor_conf('{}-uwsgi.conf'.format(prjname),
+                     UWSGI_SUPERVISOR_CONF.format(prjname, project_dir, prjname))
+
+    else:
+        envdir = join(shared_dir, DEFAULTSECTION.get('env_dir'))
 
     os.chdir(project_dir)
     i.run_in_env(envdir, "python manage.py configure")
     i.setup_database(prjname, db_user, db_password, db_engine)
     i.run_in_env(envdir, "python manage.py prep --noinput")
-    i.run_in_env(envdir, "python manage.py collectstatic --noinput")
+
+    if prod:
+        i.run_in_env(envdir, "python manage.py collectstatic --noinput")
 
     i.finish()
 
