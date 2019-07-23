@@ -427,8 +427,9 @@ def startsite(ctx, appname, prjname, batch, dev, linodev):
     # full_repos_dir = join(envdir, DEFAULTSECTION.get('repos_dir'))
     admin_name = DEFAULTSECTION.get('admin_name')
     admin_email = DEFAULTSECTION.get('admin_email')
+    server_domain = DEFAULTSECTION.get('server_domain')
     server_url = ("https://" if DEFAULTSECTION.getboolean('https') else "http://") \
-                 + prjname + "." + DEFAULTSECTION.get('server_domain')
+                 + prjname + "." + server_domain
     db_user = prjname
     db_password = "1234"  # todo: generate random password
     db_engine = DEFAULTSECTION.get('db_engine')
@@ -484,6 +485,7 @@ sudo adduser `whoami` {0}"""
         # "use_app_dev": "y" if dev else 'n',
         # "use_lino_dev": "y" if linodev else 'n',
         "server_url": server_url,
+        "server_domain": server_domain,
         "admin_full_name": admin_name,
         "admin_email": admin_email,
         "db_engine": db_engine,
