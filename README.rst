@@ -2,32 +2,9 @@
 The ``getlino`` package
 =======================
 
-A script for configuring Lino production servers and installing Lino sites.
+A script for installing the Lino framework and starting Lino sites.
 
-This package is meant to be installed into the system-wide Python of a Lino
-production server::
+Documentation: http://www.lino-framework.org/admin/getlino.html
 
-    $ sudo pip3 install getlino
-
-First you will create a system-wide getlino config file::
-
-    $ sudo getlino.py configure
-
-
-Next step is to install system-wide dependencies according to your getlino
-config file::
-
-    $ sudo getlino.py setup
-
-Last step is to create a Lino site.  For example::
-
-    $ getlino.py startsite mysite noi
-
-
-
-
-
-Testing using Docker file::
-
-    $ docker build -t getlino .
+Code repository: https://github.com/lino-framework/getlino
 
