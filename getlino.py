@@ -80,6 +80,14 @@ KNOWN_APPS = [
              "https://github.com/lino-framework/book"),
 ]
 
+KnownLib = collections.namedtuple(
+    'KnownLib', ('nickname', 'package_name', 'git_repo'))
+KNOWN_LIBS = [
+    KnownLib("lino", "lino", "https://github.com/lino-framework/lino"),
+    KnownLib("xl", "lino-xl", "https://github.com/lino-framework/xl"),
+    # KnownLib("book", "lino-book", "https://github.com/lino-framework/book"),
+]
+
 APPNAMES = [a.name for a in KNOWN_APPS]
 
 CONF_FILES = ['/etc/getlino/getlino.conf',
@@ -96,17 +104,20 @@ class Installer(object):
         self._system_packages = set()
 
     def check_overwrite(self, pth):
-        if os.path.exists(pth):
-            if os.path.isdir(pth):
-                if self.yes_or_no("Overwrite existing directory {} ? [y or n]".format(pth)):
-                    shutil.rmtree(pth)
-                else:
-                    raise click.Abort()
-            else:
-                if self.yes_or_no("Overwrite existing file {} ? [y or n]".format(pth)):
-                    os.remove(pth)
-                else:
-                    raise click.Abort()
+        """If pth (directory or file ) exists, remove it (after asking for confirmation).
+        Return False if it exists and user doesn't confirm.
+        """
+        if not os.path.exists(pth):
+            return True
+        if os.path.isdir(pth):
+            if self.yes_or_no("Overwrite existing directory {} ? [y or n]".format(pth)):
+                shutil.rmtree(pth)
+                return True
+        else:
+            if self.yes_or_no("Overwrite existing file {} ? [y or n]".format(pth)):
+                os.remove(pth)
+                return True
+        return False
 
     def yes_or_no(self, msg, yes="yY", no="nN"):
         """Ask for confirmation without accepting a mere RETURN."""
@@ -173,9 +184,9 @@ class Installer(object):
                 os.chmod(pth, mode)
 
     def write_file(self, pth, content):
-        self.check_overwrite(pth)
-        with open(pth, 'w') as fd:
-            fd.write(content)
+        if self.check_overwrite(pth):
+            with open(pth, 'w') as fd:
+                fd.write(content)
 
     def write_supervisor_conf(self, filename, content):
         self.write_file(
@@ -210,6 +221,15 @@ class Installer(object):
         if self.batch:
             cmd += "-y "
         self.runcmd(cmd + ' '.join(self._system_packages))
+
+    def install_known_lib(self, lib):
+        if not os.path.exists(lib.nickname):
+            i.runcmd("git clone --depth 1 -b master {}".format(lib.git_repo))
+            i.run_in_env(envdir, "pip install -e {}".format(lib.nickname))
+        else:
+            click.echo(
+                "Don't install {} because the code repository exists.".format(
+                    lib.package_name))
 
     def finish(self):
         self.run_apt_install()
@@ -312,10 +332,10 @@ def configure(ctx, batch,
     # the user file. Otherwise write the system-wide file.
     if len(FOUND_CONFIG_FILES) == 1:
         conffile = FOUND_CONFIG_FILES[0]
-        msg = "This will update configuration file {} [y or n] ?"
+        msg = "This will update configuration file {} ?"
     else:
         conffile = CONF_FILES[0]
-        msg = "This will create configuration file {} [y or n] ?"
+        msg = "This will create configuration file {} ?"
 
     if batch or click.confirm(msg.format(conffile), default=True):
         pth = os.path.dirname(conffile)
@@ -449,7 +469,8 @@ def startsite(ctx, appname, prjname, batch, dev, linodev):
 
     prjpath = join(DEFAULTSECTION.get('projects_root'), prjname)
 
-    i.check_overwrite(prjpath)
+    if not i.check_overwrite(prjpath):
+        raise click.Abort()
 
     # if os.path.exists(prjpath):
     #     raise click.UsageError("Project directory {} already exists.".format(prjpath))
@@ -550,12 +571,14 @@ sudo adduser `whoami` {0}"""
 
     if prod:
         logdir = join(DEFAULTSECTION.get("log_root"), prjname)
-        if batch or click.confirm("Setup log directory {}".format(logdir), default=True):
-            i.check_overwrite(logdir)
+        if i.check_overwrite(logdir):
             os.makedirs(logdir, exist_ok=True)
-            i.check_permissions(logdir)
-            os.symlink(logdir, join(project_dir, 'log'))
-            # TODO: add cron logrotate entry
+        i.check_permissions(logdir)
+        os.symlink(logdir, join(project_dir, 'log'))
+
+
+    # TODO: add cron logrotate entry
+    # TODO: add monit config
 
     os.makedirs(join(project_dir, 'media'), exist_ok=True)
 
@@ -584,7 +607,7 @@ sudo adduser `whoami` {0}"""
 
         i.batch = True  # Don't exaggerate with questions. Remove for debugging.
 
-        full_repos_dir = DEFAULTSECTION.get('repositories_root'))
+        full_repos_dir = DEFAULTSECTION.get('repositories_root')
         if not full_repos_dir:
             full_repos_dir = join(envdir, DEFAULTSECTION.get('repos_link'))
             if not os.path.exists(full_repos_dir):
@@ -597,12 +620,14 @@ sudo adduser `whoami` {0}"""
         click.echo("Installing Lino and XL to ...".format(envdir))
         if linodev:
             os.chdir(full_repos_dir)
-            if not os.path.exists('lino'):
-                i.runcmd("git clone --depth 1 -b master https://github.com/lino-framework/lino")
-            i.run_in_env(envdir, "pip install -e lino")
-            if not os.path.exists('xl'):
-                i.runcmd("git clone --depth 1 -b master https://github.com/lino-framework/xl")
-            i.run_in_env(envdir, "pip install -e xl")
+            for lib in KNOWN_LIBS:
+                i.install_known_lib(lib)
+            # if not os.path.exists('xl'):
+            #     i.runcmd("git clone --depth 1 -b master https://github.com/lino-framework/xl")
+            #     i.run_in_env(envdir, "pip install -e xl")
+            # else:
+            #     click.echo(
+            #         "Don't install xl because the code repository exists.")
         else:
             i.run_in_env(envdir, "pip install lino")
 
@@ -610,7 +635,7 @@ sudo adduser `whoami` {0}"""
             os.chdir(full_repos_dir)
             if not os.path.exists(repo_nickname):
                 i.runcmd("git clone --depth 1 -b master {}".format(app.git_repo))
-            i.run_in_env(envdir, "pip install -e {}".format(repo_nickname))
+                i.run_in_env(envdir, "pip install -e {}".format(repo_nickname))
         else:
             i.run_in_env(envdir, "pip install {}".format(app_package))
 
@@ -629,10 +654,10 @@ sudo adduser `whoami` {0}"""
                 filename = "{}.conf".format(prjname)
                 avpth = join(SITES_AVAILABLE, filename)
                 enpth = join(SITES_ENABLED, filename)
-                i.check_overwrite(enpth)
-                i.check_overwrite(avpth)
-                shutil.copyfile(join(project_dir, 'nginx', filename), avpth)
-                os.symlink(avpth, enpth)
+                if i.check_overwrite(avpth):
+                    shutil.copyfile(join(project_dir, 'nginx', filename), avpth)
+                if i.check_overwrite(enpth):
+                    os.symlink(avpth, enpth)
                 i.must_restart("nginx")
                 i.write_supervisor_conf('{}-uwsgi.conf'.format(prjname),
                      UWSGI_SUPERVISOR_CONF.format(**context))
