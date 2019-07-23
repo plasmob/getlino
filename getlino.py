@@ -519,6 +519,7 @@ sudo adduser `whoami` {0}"""
         "repo_nickname": repo_nickname,
         "app_package": app_package,
         "app_settings_module": app.settings_module,
+        "server_domain":server_domain,
         # cookiecutter supports standard Python types
         "use_app_dev": dev,
         "use_lino_dev": linodev,
