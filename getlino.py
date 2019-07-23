@@ -502,7 +502,6 @@ sudo adduser `whoami` {0}"""
         "use_app_dev": dev,
         "use_lino_dev": linodev,
         "server_url": server_url,
-<<<<<<< HEAD
         # "admin_name": admin_name,
         # "admin_email": admin_email,
         # "db_engine": db_engine,
@@ -537,12 +536,6 @@ sudo adduser `whoami` {0}"""
         raise click.Abort()
 
     context.update({
-=======
-        "server_domain": server_domain,
-        "admin_full_name": admin_name,
-        "admin_email": admin_email,
-        "db_engine": db_engine,
->>>>>>> f61558670a002d2e35a900ef1fd1c4eb87595329
         "db_user": db_user,
         "db_password": db_password,
     })
