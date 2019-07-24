@@ -403,7 +403,7 @@ def configure(ctx, batch,
             "git subversion python3 python3-dev python3-setuptools python3-pip supervisor")
 
         if prod:
-            i.apt_install("nginx uwsgi-plugin-python")
+            i.apt_install("nginx uwsgi-plugin-python3")
             i.apt_install("monit")
 
         if DEFAULTSECTION.getboolean('devtools'):
