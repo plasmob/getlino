@@ -402,7 +402,7 @@ def configure(ctx, batch,
             "git subversion python3 python3-dev python3-setuptools python3-pip supervisor")
 
         if prod:
-            i.apt_install("nginx")
+            i.apt_install("nginx uwsgi")
             i.apt_install("monit")
 
         if DEFAULTSECTION.getboolean('devtools'):
@@ -643,8 +643,8 @@ sudo adduser `whoami` {0}"""
             if DEFAULTSECTION.get('db_engine') == e.name:
                 i.run_in_env(envdir, "pip install {}".format(e.python_packages))
 
-        if USE_NGINX:
-            i.run_in_env(envdir, "pip install -U uwsgi")
+        # if USE_NGINX:
+        #     i.run_in_env(envdir, "pip install -U uwsgi")
 
         i.batch = batch
 
