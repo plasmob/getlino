@@ -604,7 +604,7 @@ sudo adduser `whoami` {0}"""
             static_dir = join(shared_env, 'static')
             if not os.path.exists(static_dir):
                 os.makedirs(static_dir, exist_ok=True)
-            os.symlink(static_dir, join(project_dir, 'static'))
+            # os.symlink(static_dir, join(project_dir, 'static'))
 
         i.batch = True  # Don't exaggerate with questions. Remove for debugging.
 
