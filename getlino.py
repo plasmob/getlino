@@ -44,7 +44,6 @@ ADMINS = [
   ["{admin_name}", "{admin_email}"] 
 ]
 EMAIL_HOST = 'localhost'
-ALLOWED_HOSTS = ['{server_domain}']
 SERVER_EMAIL = 'noreply@{server_domain}'
 DEFAULT_FROM_EMAIL = 'noreply@{server_domain}'
 STATIC_ROOT = 'env/static'
