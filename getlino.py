@@ -480,7 +480,7 @@ def configure(ctx, batch,
             'libreoffice.conf',
             LIBREOFFICE_SUPERVISOR_CONF.format(**DEFAULTSECTION))
 
-    if DEFAULTSECTION.get('https'):
+    if DEFAULTSECTION.getboolean('https'):
         i.apt_install("letsencrypt python-certbot-nginx")
         i.runcmd("sudo letsencrypt register --agree-tos -m {} -n".format(DEFAULTSECTION.get('admin_email')))
 
@@ -718,6 +718,9 @@ sudo adduser `whoami` {0}"""
                     i.must_restart("nginx")
                     i.write_supervisor_conf('{}-uwsgi.conf'.format(prjname),
                          UWSGI_SUPERVISOR_CONF.format(**context))
+                if DEFAULTSECTION.getboolean('https'):
+                    i.runcmd("sudo letsencrypt --nginx - {} -d www.{}".format(server_domain,server_domain))
+                    i.must_restart("nginx")
 
     os.chdir(project_dir)
     i.run_in_env(envdir, "python manage.py configure")
