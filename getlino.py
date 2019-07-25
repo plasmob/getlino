@@ -480,6 +480,10 @@ def configure(ctx, batch,
             'libreoffice.conf',
             LIBREOFFICE_SUPERVISOR_CONF.format(**DEFAULTSECTION))
 
+    if DEFAULTSECTION.get('https'):
+        i.apt_install("letsencrypt python-certbot-nginx")
+        i.runcmd("sudo letsencrypt register --agree-tos -m {} -n".format(DEFAULTSECTION.get('admin_email')))
+
     click.echo("Lino server setup completed.")
 
 params = [
