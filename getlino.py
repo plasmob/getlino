@@ -27,7 +27,7 @@ BATCH_HELP = "Whether to run in batch mode, i.e. without asking any questions.  
              "Don't use this on a machine that is already being used."
 
 CERTBOT_AUTO_RENEW = """
-echo "0 0,12 * * * root python -c 'import random; import time; time.sleep(random.random() * 3600)' && /usr/local/bin/certbot-auto renew" | sudo tee -a /etc/crontab > /dev/null
+echo "0 0,12 * * * root python -c 'import random; import time; time.sleep(random.random() * 3600)' && /usr/local/bin/certbot-auto renew" | tee -a /etc/crontab > /dev/null
 """
 HEALTHCHECK_SH = """
 #!/bin/bash
@@ -534,7 +534,7 @@ def startsite(ctx, appname, prjname, batch, dev_repos):
 
     if len(FOUND_CONFIG_FILES) == 0:
         raise click.UsageError(
-            "This server is not yet configured. Did you run `sudo getlino.py configure`?")
+            "This server is not yet configured. Did you run `sudo -H getlino.py configure`?")
 
     i = Installer(batch)
 
@@ -746,7 +746,7 @@ sudo adduser `whoami` {0}"""
                     i.write_supervisor_conf('{}-uwsgi.conf'.format(prjname),
                          UWSGI_SUPERVISOR_CONF.format(**context))
                 if DEFAULTSECTION.getboolean('https'):
-                    i.runcmd("sudo certbot-auto --nginx -d {} -d www.{}".format(server_domain,server_domain))
+                    i.runcmd("certbot-auto --nginx -d {} -d www.{}".format(server_domain,server_domain))
                     i.must_restart("nginx")
 
     os.chdir(project_dir)
