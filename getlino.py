@@ -746,7 +746,7 @@ sudo adduser `whoami` {0}"""
                     i.write_supervisor_conf('{}-uwsgi.conf'.format(prjname),
                          UWSGI_SUPERVISOR_CONF.format(**context))
                 if DEFAULTSECTION.getboolean('https'):
-                    i.runcmd("sudo certbot-auto --nginx - {} -d www.{}".format(server_domain,server_domain))
+                    i.runcmd("sudo certbot-auto --nginx -d {} -d www.{}".format(server_domain,server_domain))
                     i.must_restart("nginx")
 
     os.chdir(project_dir)
