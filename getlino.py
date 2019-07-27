@@ -95,36 +95,29 @@ DB_ENGINES = [
     DbEngine('sqlite3', "", "")
 ]
 
-KnownApp = collections.namedtuple(
-    'KnownApp', ('name', 'settings_module', 'git_repo'))
-KNOWN_APPS = [
-    KnownApp("noi", "lino_noi.lib.noi.settings",
-             "https://github.com/lino-framework/noi"),
-    KnownApp("voga", "lino_voga.lib.voga.settings",
-             "https://github.com/lino-framework/voga"),
-    KnownApp("cosi", "lino_cosi.lib.cosi.settings",
-             "https://github.com/lino-framework/cosi"),
-    KnownApp("avanti", "lino_avanti.lib.avanti.settings",
-             "https://github.com/lino-framework/avanti"),
-    KnownApp("amici", "lino_amici.lib.amici.settings",
-             "https://github.com/lino-framework/amici"),
-    KnownApp("weleup", "lino_weleup.settings",
-             "https://github.com/lino-framework/weleup"),
-    KnownApp("welcht", "lino_welcht.settings",
-             "https://github.com/lino-framework/welcht"),
-    KnownApp("min2", "lino_book.projects.min2.settings",
-             "https://github.com/lino-framework/book"),
-]
+Repo = collections.namedtuple(
+    'Repo', ('nickname', 'package_name', 'settings_module', 'git_repo'))
+REPOS_DICT = {}
+KNOWN_REPOS = []
+def add(*args):
+    t = Repo(*args)
+    KNOWN_REPOS.append(t)
+    REPOS_DICT[t.nickname] = t
 
-KnownLib = collections.namedtuple(
-    'KnownLib', ('nickname', 'package_name', 'git_repo'))
-KNOWN_LIBS = [
-    KnownLib("lino", "lino", "https://github.com/lino-framework/lino"),
-    KnownLib("xl", "lino-xl", "https://github.com/lino-framework/xl"),
-    # KnownLib("book", "lino-book", "https://github.com/lino-framework/book"),
-]
+add("noi", "lino-noi", "lino_noi.lib.noi.settings", "https://github.com/lino-framework/noi")
+add("voga", "lino-voga", "lino_voga.lib.voga.settings", "https://github.com/lino-framework/voga")
+add("cosi", "lino-cosi", "lino_cosi.lib.cosi.settings", "https://github.com/lino-framework/cosi")
+add("avanti", "lino-avanti", "lino_avanti.lib.avanti.settings", "https://github.com/lino-framework/avanti")
+add("amici", "lino-amici", "lino_amici.lib.amici.settings", "https://github.com/lino-framework/amici")
+add("weleup", "lino-weleup", "lino_weleup.settings", "https://github.com/lino-framework/weleup")
+add("welcht", "lino-welcht", "lino_welcht.settings", "https://github.com/lino-framework/welcht")
+add("book", "lino-book", "", "https://github.com/lino-framework/book")
+add("min2", "", "lino_book.projects.min2.settings", "")
+add("lino", "lino", "", "https://github.com/lino-framework/lino")
+add("xl", "lino-xl", "", "https://github.com/lino-framework/xl")
+add("welfare", "lino-welfare", "", "https://github.com/lino-framework/welfare")
 
-APPNAMES = [a.name for a in KNOWN_APPS]
+APPNAMES = [a.nickname for a in KNOWN_REPOS if a.settings_module]
 
 CONF_FILES = ['/etc/getlino/getlino.conf',
               os.path.expanduser('~/.getlino.conf')]
@@ -269,14 +262,14 @@ class Installer(object):
             cmd += "-y "
         self.runcmd(cmd + ' '.join(self._system_packages))
 
-    def install_known_lib(self, lib):
-        if not os.path.exists(lib.nickname):
-            i.runcmd("git clone --depth 1 -b master {}".format(lib.git_repo))
-            i.run_in_env(envdir, "pip install -e {}".format(lib.nickname))
+    def install_repo(self, repo):
+        if not os.path.exists(repo.nickname):
+            i.runcmd("git clone --depth 1 -b master {}".format(repo.git_repo))
+            i.run_in_env(envdir, "pip install -e {}".format(repo.nickname))
         else:
             click.echo(
                 "Don't install {} because the code repository exists.".format(
-                    lib.package_name))
+                    repo.package_name))
 
     def finish(self):
         self.run_apt_install()
@@ -326,9 +319,11 @@ def add(spec, default, help, type=None):
 
 # must be same order as in signature of configure command below
 add('--prod/--no-prod', True, "Whether this is a production server")
-add('--shared-env', '/usr/local/lino/env', "Directory with shared virtualenv")
 add('--projects-root', '/usr/local/lino', 'Base directory for Lino sites')
-add('--repositories-root', '/usr/local/lino/repositories', "Base directory for shared code repositories")
+add('--local-prefix', 'lino_local', "Prefix for for local server-wide importable packages")
+add('--shared-env', '/usr/local/lino/shared/env', "Directory with shared virtualenv")
+add('--repositories-root', '', "Base directory for shared code repositories")
+add('--webdav/--no-webdav', True, "Whether to enable webdav on new sites.")
 add('--backups-root', '/var/backups/lino', 'Base directory for backups')
 add('--log-root', '/var/log/lino', 'Base directory for log files')
 add('--usergroup', 'www-data', "User group for files to be shared with the web server")
@@ -354,8 +349,8 @@ add('--time-zone', 'Europe/Brussels', "The TIME_ZONE to set on new sites")
 
 
 def configure(ctx, batch,
-              prod, shared_env, projects_root, repositories_root,
-              backups_root, log_root, usergroup,
+              prod, projects_root, local_prefix, shared_env, repositories_root,
+              webdav, backups_root, log_root, usergroup,
               supervisor_dir, db_engine, db_port, db_host, env_link, repos_link,
               appy, redis, devtools, server_domain, https, monit,
               admin_name, admin_email, time_zone):
@@ -430,16 +425,17 @@ def configure(ctx, batch,
         os.makedirs(pth, exist_ok=True)
         i.check_permissions(pth)
 
-    pth = join(DEFAULTSECTION.get('projects_root'), 'lino_local')
+    local_prefix = DEFAULTSECTION.get('local_prefix')
+    pth = join(DEFAULTSECTION.get('projects_root'), local_prefix)
     if os.path.exists(pth):
         i.check_permissions(pth)
-    elif batch or click.confirm("Create lino_local package {}".format(pth), default=True):
+    elif batch or click.confirm("Create shared settings package {}".format(pth), default=True):
         os.makedirs(pth, exist_ok=True)
-        i.batch = True
+    with i.override_batch(True):
         i.check_permissions(pth)
         i.write_file(join(pth, '__init__.py'), '')
-        i.write_file(join(pth, 'settings.py'), LOCAL_SETTINGS.format(**DEFAULTSECTION))
-        i.batch = batch
+    i.write_file(join(pth, 'settings.py'),
+                 LOCAL_SETTINGS.format(**DEFAULTSECTION))
 
     prod = DEFAULTSECTION.getboolean('prod')
 
@@ -506,16 +502,10 @@ configure = click.Command('configure', callback=configure,
 @click.argument('appname', metavar="APPNAME", type=click.Choice(APPNAMES))
 @click.argument('prjname')
 @click.option('--batch/--no-batch', default=False, help=BATCH_HELP)
-@click.option('--dev/--no-dev', default=False,
-              help="Whether to use development version of the application")
-@click.option('--linodev/--no-linodev', default=False,
-              help="Whether to use development version of Lino")
-# @click.option('--shared-env',
-#               help="Full path of a shared virtualenv to use for this site")
-# @click.option('--server-url', default='https://myprjname.example.com',
-#               help="The URL where this site is published")
+@click.option('--dev-repos', default='',
+              help="List of packages for which to install development version")
 @click.pass_context
-def startsite(ctx, appname, prjname, batch, dev, linodev):
+def startsite(ctx, appname, prjname, batch, dev_repos):
     """
     Create a new Lino site.
 
@@ -523,7 +513,7 @@ def startsite(ctx, appname, prjname, batch, dev, linodev):
 
     APPNAME : The application to run on the new site. 
 
-    PRJNAME : The project name for the new site.
+    SITENAME : The name for the new site.
 
     """ # .format(appnames=' '.join(APPNAMES))
 
@@ -533,20 +523,15 @@ def startsite(ctx, appname, prjname, batch, dev, linodev):
 
     i = Installer(batch)
 
-    prjpath = join(DEFAULTSECTION.get('projects_root'), prjname)
-
-    if not i.check_overwrite(prjpath):
-        raise click.Abort()
-
     # if os.path.exists(prjpath):
     #     raise click.UsageError("Project directory {} already exists.".format(prjpath))
 
     prod = DEFAULTSECTION.getboolean('prod')
     projects_root = DEFAULTSECTION.get('projects_root')
-    project_dir = join(projects_root, prjname)
+    local_prefix = DEFAULTSECTION.get('local_prefix')
+    python_path_root = join(projects_root, local_prefix)
+    project_dir = join(python_path_root, prjname)
     shared_env = DEFAULTSECTION.get('shared_env')
-    # envdir = join(project_dir, DEFAULTSECTION.get('env_link'))
-    # full_repos_dir = join(envdir, DEFAULTSECTION.get('repos_link'))
     admin_name = DEFAULTSECTION.get('admin_name')
     admin_email = DEFAULTSECTION.get('admin_email')
     server_domain = prjname + "." + DEFAULTSECTION.get('server_domain')
@@ -556,6 +541,9 @@ def startsite(ctx, appname, prjname, batch, dev, linodev):
     db_password = "1234"  # todo: generate random password
     db_engine = DEFAULTSECTION.get('db_engine')
     db_port = DEFAULTSECTION.get('db_port')
+
+    if not i.check_overwrite(project_dir):
+        raise click.Abort()
 
     if not prod and not shared_env:
         raise click.ClickException(
@@ -571,12 +559,25 @@ ERROR: you don't belong to the {0} user group.  Maybe you want to run:
 sudo adduser `whoami` {0}"""
         raise click.ClickException(msg.format(usergroup))
 
-    app = KNOWN_APPS[APPNAMES.index(appname)]
-    app_package = app.settings_module.split('.')[0]
+    app = REPOS_DICT.get(appname, None)
+    if app is None:
+        raise click.ClickException("Invalid application nickname {}".format(appname))
+
+    if not app.settings_module:
+        raise click.ClickException("{} is a library, not an application".format(appname))
+
+    app_package = app.package_name
+    # app_package = app.settings_module.split('.')[0]
     repo_nickname = app.git_repo.split('/')[-1]
 
     context = {}
     context.update(DEFAULTSECTION)
+    pip_packages = []
+    if app.nickname not in dev_repos:
+        pip_packages.append(app.package_name)
+    for nickname in ("lino", "xl"):
+        if nickname not in dev_repos:
+            pip_packages.append(REPOS_DICT[nickname].package_name)
     context.update({
         "prjname": prjname,
         "appname": appname,
@@ -585,9 +586,12 @@ sudo adduser `whoami` {0}"""
         "repo_nickname": repo_nickname,
         "app_package": app_package,
         "app_settings_module": app.settings_module,
+        "django_settings_module": "{}.{}.settings".format(local_prefix, prjname),
         "server_domain":server_domain,
-        "use_app_dev": dev,
-        "use_lino_dev": linodev,
+        "dev_packages": ' '.join([a.nickname for a in KNOWN_REPOS if a.nickname in dev_repos]),
+        "pip_packages": ' '.join(pip_packages),
+        # "use_app_dev": app.nickname in dev_repos,
+        # "use_lino_dev": linodev,
         "server_url": server_url,
         "db_name": prjname,
         "python_path": projects_root,
@@ -628,7 +632,7 @@ sudo adduser `whoami` {0}"""
     click.echo("Running cookiecutter {}...".format(COOKIECUTTER_URL))
     cookiecutter(
         COOKIECUTTER_URL,
-        no_input=True, extra_context=context, output_dir=projects_root)
+        no_input=True, extra_context=context, output_dir=python_path_root)
 
     if prod:
         logdir = join(DEFAULTSECTION.get("log_root"), prjname)
@@ -663,10 +667,10 @@ sudo adduser `whoami` {0}"""
 
     if prod:
         if shared_env:
+            os.symlink(envdir, join(project_dir, DEFAULTSECTION.get('env_link')))
             static_dir = join(shared_env, 'static')
             if not os.path.exists(static_dir):
                 os.makedirs(static_dir, exist_ok=True)
-            # os.symlink(static_dir, join(project_dir, 'static'))
 
         i.batch = True  # Don't exaggerate with questions. Remove for debugging.
 
@@ -677,37 +681,28 @@ sudo adduser `whoami` {0}"""
                 os.makedirs(full_repos_dir, exist_ok=True)
                 i.check_permissions(full_repos_dir)
 
-        if shared_env:
-            os.symlink(envdir, join(project_dir, DEFAULTSECTION.get('env_link')))
-
-        click.echo("Installing Lino and XL to ...".format(envdir))
-        if linodev:
+        click.echo("Installing repositories ...".format(full_repos_dir))
+        if dev_repos:
             os.chdir(full_repos_dir)
-            for lib in KNOWN_LIBS:
-                i.install_known_lib(lib)
-            # if not os.path.exists('xl'):
-            #     i.runcmd("git clone --depth 1 -b master https://github.com/lino-framework/xl")
-            #     i.run_in_env(envdir, "pip install -e xl")
-            # else:
-            #     click.echo(
-            #         "Don't install xl because the code repository exists.")
-        else:
-            i.run_in_env(envdir, "pip install lino")
-
-        if dev and app.git_repo:
-            os.chdir(full_repos_dir)
-            if not os.path.exists(repo_nickname):
-                i.runcmd("git clone --depth 1 -b master {}".format(app.git_repo))
-                i.run_in_env(envdir, "pip install -e {}".format(repo_nickname))
-        else:
-            i.run_in_env(envdir, "pip install {}".format(app_package))
+            for nickname in dev_repos.split():
+                lib = REPOS_DICT.get(nickname, None)
+                if lib is None:
+                    raise click.ClickException("Invalid repo nickname {}".format(nckname))
+                i.install_repo(lib)
+        # else:
+        #     i.run_in_env(envdir, "pip install lino")
+        #
+        # if dev and app.git_repo:
+        #     os.chdir(full_repos_dir)
+        #     if not os.path.exists(repo_nickname):
+        #         i.runcmd("git clone --depth 1 -b master {}".format(app.git_repo))
+        #         i.run_in_env(envdir, "pip install -e {}".format(repo_nickname))
+        # else:
+        #     i.run_in_env(envdir, "pip install {}".format(app_package))
 
         for e in DB_ENGINES:
             if DEFAULTSECTION.get('db_engine') == e.name:
                 i.run_in_env(envdir, "pip install {}".format(e.python_packages))
-
-        # if USE_NGINX:
-        #     i.run_in_env(envdir, "pip install -U uwsgi")
 
         i.batch = batch
 
