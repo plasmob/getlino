@@ -26,7 +26,7 @@ COOKIECUTTER_URL = "https://github.com/lino-framework/cookiecutter-startsite"
 BATCH_HELP = "Whether to run in batch mode, i.e. without asking any questions.  "\
              "Don't use this on a machine that is already being used."
 
-CERBOT_AUTO_RENEW = """
+CERTBOT_AUTO_RENEW = """
 echo "0 0,12 * * * root python -c 'import random; import time; time.sleep(random.random() * 3600)' && /usr/local/bin/certbot-auto renew" | sudo tee -a /etc/crontab > /dev/null
 """
 HEALTHCHECK_SH = """
@@ -479,13 +479,18 @@ def configure(ctx, batch,
             LIBREOFFICE_SUPERVISOR_CONF.format(**DEFAULTSECTION))
 
     if DEFAULTSECTION.getboolean('https'):
-        from shutil import which
-        if not which("certbot-auto"):
-            i.runcmd("wget https://dl.eff.org/certbot-auto; sudo mv certbot-auto /usr/local/bin/certbot-auto ; sudo chown root /usr/local/bin/certbot-auto; sudo chmod 0755 /usr/local/bin/certbot-auto; certbot-auto -n")
-            i.runcmd("certbot-auto register --agree-tos -m {} -n".format(DEFAULTSECTION.get('admin_email')))
-
-            if batch or click.confirm("Set up automatic certificate renewal ", default=True):
-                i.runcmd(CERBOT_AUTO_RENEW)
+        if shutil.which("certbot-auto"):
+            click.echo("certbot-auto already installed")
+        elif batch or click.confirm("Install certbot-auto ?", default=True):
+            with i.override_batch(True):
+                i.runcmd("wget https://dl.eff.org/certbot-auto")
+                i.runcmd("mv certbot-auto /usr/local/bin/certbot-auto")
+                i.runcmd("chown root /usr/local/bin/certbot-auto")
+                i.runcmd("chmod 0755 /usr/local/bin/certbot-auto")
+                i.runcmd("certbot-auto -n")
+                i.runcmd("certbot-auto register --agree-tos -m {} -n".format(DEFAULTSECTION.get('admin_email')))
+        if batch or click.confirm("Set up automatic certificate renewal ", default=True):
+            i.runcmd(CERTBOT_AUTO_RENEW)
 
     click.echo("Lino server setup completed.")
 
