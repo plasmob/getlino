@@ -242,7 +242,7 @@ sudo adduser `whoami` {0}"""
             for nickname in dev_repos.split():
                 lib = REPOS_DICT.get(nickname, None)
                 if lib is None:
-                    raise click.ClickException("Invalid repo nickname {}".format(nckname))
+                    raise click.ClickException("Invalid repo nickname {}".format(nickname))
                 i.install_repo(lib)
         # else:
         #     i.run_in_env(envdir, "pip install lino")
