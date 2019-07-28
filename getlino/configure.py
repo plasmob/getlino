@@ -15,7 +15,8 @@ from contextlib import contextmanager
 
 from os.path import join
 
-from .utils import CONFIG, CONF_FILES, FOUND_CONFIG_FILES, DEFAULTSECTION, DB_ENGINES, BATCH_HELP
+from .utils import CONFIG, CONF_FILES, FOUND_CONFIG_FILES, DEFAULTSECTION
+from .utils import DB_ENGINES, BATCH_HELP, ASROOT_HELP
 from .utils import Installer
 
 
@@ -74,12 +75,19 @@ def add(spec, default, help, type=None):
     o.default = DEFAULTSECTION.get(o.name, default)
     CONFIGURE_OPTIONS.append(o)
 
+def default_projects_root():
+    if os.access('/usr/local', os.W_OK):
+        return '/usr/local/lino'
+    return os.path.expanduser('~/lino')
+
+def default_shared_env():
+    return os.environ.get('VIRTUAL_ENV', '/usr/local/lino/shared/env')
 
 # must be same order as in signature of configure command below
-add('--prod/--no-prod', True, "Whether this is a production server")
-add('--projects-root', '/usr/local/lino', 'Base directory for Lino sites')
+# add('--prod/--no-prod', True, "Whether this is a production server")
+add('--projects-root', default_projects_root, 'Base directory for Lino sites')
 add('--local-prefix', 'lino_local', "Prefix for for local server-wide importable packages")
-add('--shared-env', '/usr/local/lino/shared/env', "Directory with shared virtualenv")
+add('--shared-env', default_shared_env, "Directory with shared virtualenv")
 add('--repositories-root', '', "Base directory for shared code repositories")
 add('--webdav/--no-webdav', True, "Whether to enable webdav on new sites.")
 add('--backups-root', '/var/backups/lino', 'Base directory for backups')
@@ -106,8 +114,8 @@ add('--admin-email', 'joe@example.com',
 add('--time-zone', 'Europe/Brussels', "The TIME_ZONE to set on new sites")
 
 
-def configure(ctx, batch,
-              prod, projects_root, local_prefix, shared_env, repositories_root,
+def configure(ctx, batch, asroot,
+              projects_root, local_prefix, shared_env, repositories_root,
               webdav, backups_root, log_root, usergroup,
               supervisor_dir, db_engine, db_port, db_host, env_link, repos_link,
               appy, redis, devtools, server_domain, https, monit,
@@ -123,33 +131,35 @@ def configure(ctx, batch,
         raise click.UsageError("Found multiple config files: {}".format(
             FOUND_CONFIG_FILES))
 
-    i = Installer(batch)
+    i = Installer(batch, asroot)
 
-    # write config file. if there is no system-wide file but a user file, write
-    # the user file. Otherwise write the system-wide file.
-    if len(FOUND_CONFIG_FILES) == 1:
-        conffile = FOUND_CONFIG_FILES[0]
-        msg = "This will update configuration file {}"
-    else:
+    if asroot:
         conffile = CONF_FILES[0]
-        msg = "This will create configuration file {}"
+    else:
+        conffile = CONF_FILES[1]
+
+    # # write config file. if there is no system-wide file but a user file, write
+    # # the user file. Otherwise write the system-wide file.
+    # if len(FOUND_CONFIG_FILES) == 1:
+    #     conffile = FOUND_CONFIG_FILES[0]
+    #     msg = "This will update configuration file {}"
+    # else:
+    #     msg = "This will create configuration file {}"
 
     # before asking questions check whether we will be able to store them
-    click.echo(msg.format(conffile))
-    if True:  # batch or click.confirm(msg.format(conffile), default=True):
-        pth = os.path.dirname(conffile)
-        if not os.path.exists(pth):
-            os.makedirs(pth, exist_ok=True)
+    click.echo("This will write configuration file {}".format(conffile))
+    pth = os.path.dirname(conffile)
+    if not os.path.exists(pth):
+        os.makedirs(pth, exist_ok=True)
 
-        if not os.access(os.path.dirname(conffile), os.W_OK):
-            raise click.ClickException(
-                "No write permission for file {}".format(conffile))
+    pth = os.path.dirname(conffile)
+    if not os.access(pth, os.W_OK):
+        raise click.ClickException(
+            "No write permission for directory {}".format(pth))
 
-        if not os.access(conffile, os.W_OK):
-            raise click.ClickException(
-                "No write permission for file {}".format(conffile))
-    else:
-        raise click.Abort()
+    if os.path.exists(conffile) and not os.access(conffile, os.W_OK):
+        raise click.ClickException(
+            "No write permission for file {}".format(conffile))
 
     for p in CONFIGURE_OPTIONS:
         k = p.name
@@ -202,9 +212,7 @@ def configure(ctx, batch,
     i.write_file(join(pth, 'settings.py'),
                  LOCAL_SETTINGS.format(**DEFAULTSECTION))
 
-    prod = DEFAULTSECTION.getboolean('prod')
-
-    if prod:
+    if asroot:
         if batch or click.confirm("Upgrade the system", default=True):
             with i.override_batch(True):
                 i.runcmd("apt-get update")
@@ -213,7 +221,7 @@ def configure(ctx, batch,
     i.apt_install(
         "git subversion python3 python3-dev python3-setuptools python3-pip supervisor")
 
-    if prod:
+    if asroot:
         i.apt_install("nginx uwsgi-plugin-python3")
         i.apt_install("logrotate")
 
@@ -260,7 +268,8 @@ def configure(ctx, batch,
     click.echo("Lino server setup completed.")
 
 params = [
-    click.Option(['--batch/--no-batch'], default=False, help=BATCH_HELP)
+    click.Option(['--batch/--no-batch'], default=False, help=BATCH_HELP),
+    click.Option(['--asroot/--no-asroot'], default=False, help=ASROOT_HELP)
 ] + CONFIGURE_OPTIONS
 configure = click.pass_context(configure)
 configure = click.Command('configure', callback=configure,

@@ -10,7 +10,7 @@ from os.path import join
 from cookiecutter.main import cookiecutter
 
 from .utils import APPNAMES, FOUND_CONFIG_FILES, DEFAULTSECTION, USE_NGINX
-from .utils import DB_ENGINES, BATCH_HELP, REPOS_DICT, KNOWN_REPOS
+from .utils import DB_ENGINES, BATCH_HELP, ASROOT_HELP, REPOS_DICT, KNOWN_REPOS
 from .utils import Installer, check_usergroup
 
 SITES_AVAILABLE = '/etc/nginx/sites-available'
@@ -48,10 +48,11 @@ umask = 0002
 @click.argument('appname', metavar="APPNAME", type=click.Choice(APPNAMES))
 @click.argument('prjname')
 @click.option('--batch/--no-batch', default=False, help=BATCH_HELP)
+@click.option('--asroot/--no-asroot', default=False, help=ASROOT_HELP)
 @click.option('--dev-repos', default='',
               help="List of packages for which to install development version")
 @click.pass_context
-def startsite(ctx, appname, prjname, batch, dev_repos):
+def startsite(ctx, appname, prjname, batch, asroot, dev_repos):
     """
     Create a new Lino site.
 
@@ -72,7 +73,7 @@ def startsite(ctx, appname, prjname, batch, dev_repos):
     # if os.path.exists(prjpath):
     #     raise click.UsageError("Project directory {} already exists.".format(prjpath))
 
-    prod = DEFAULTSECTION.getboolean('prod')
+    # prod = DEFAULTSECTION.getboolean('prod')
     projects_root = DEFAULTSECTION.get('projects_root')
     local_prefix = DEFAULTSECTION.get('local_prefix')
     python_path_root = join(projects_root, local_prefix)
@@ -108,7 +109,7 @@ def startsite(ctx, appname, prjname, batch, dev_repos):
     if not i.check_overwrite(project_dir):
         raise click.Abort()
 
-    if not prod and not shared_env:
+    if not asroot and not shared_env:
         raise click.ClickException(
             "Cannot startsite in a development environment without a shared-env!")
 
@@ -137,7 +138,6 @@ sudo adduser `whoami` {0}"""
     context.update({
         "prjname": prjname,
         "appname": appname,
-        "server_type": "production" if prod else "development",
         "project_dir": project_dir,
         "repo_nickname": repo_nickname,
         "app_package": app_package,
@@ -155,12 +155,12 @@ sudo adduser `whoami` {0}"""
     })
 
     click.echo(
-        'Create a new Lino {appname} {server_type} site into {project_dir}'.format(
+        'Create a new Lino {appname} site into {project_dir}'.format(
             **context))
 
     if not batch:
         shared_env = click.prompt("Shared virtualenv", default=shared_env)
-        # if prod:
+        # if asroot:
         #     server_url = click.prompt("Server URL ", default=server_url)
         #     admin_name = click.prompt("Administrator's full name", default=admin_name)
         #     admin_email = click.prompt("Administrator's full name", default=admin_email)
@@ -190,7 +190,7 @@ sudo adduser `whoami` {0}"""
         COOKIECUTTER_URL,
         no_input=True, extra_context=context, output_dir=python_path_root)
 
-    if prod:
+    if asroot:
         logdir = join(DEFAULTSECTION.get("log_root"), prjname)
         os.makedirs(logdir, exist_ok=True)
         with i.override_batch(True):
@@ -220,47 +220,34 @@ sudo adduser `whoami` {0}"""
         if batch or click.confirm(venv_msg.format(envdir), default=True):
             virtualenv.create_environment(envdir)
 
-    if prod:
-        if shared_env:
-            os.symlink(envdir, join(project_dir, DEFAULTSECTION.get('env_link')))
-            static_dir = join(shared_env, 'static')
-            if not os.path.exists(static_dir):
-                os.makedirs(static_dir, exist_ok=True)
+    if shared_env:
+        os.symlink(envdir, join(project_dir, DEFAULTSECTION.get('env_link')))
+        static_dir = join(shared_env, 'static')
+        if not os.path.exists(static_dir):
+            os.makedirs(static_dir, exist_ok=True)
 
-        i.batch = True  # Don't exaggerate with questions. Remove for debugging.
+    full_repos_dir = DEFAULTSECTION.get('repositories_root')
+    if not full_repos_dir:
+        full_repos_dir = join(envdir, DEFAULTSECTION.get('repos_link'))
+        if not os.path.exists(full_repos_dir):
+            os.makedirs(full_repos_dir, exist_ok=True)
+            i.check_permissions(full_repos_dir)
 
-        full_repos_dir = DEFAULTSECTION.get('repositories_root')
-        if not full_repos_dir:
-            full_repos_dir = join(envdir, DEFAULTSECTION.get('repos_link'))
-            if not os.path.exists(full_repos_dir):
-                os.makedirs(full_repos_dir, exist_ok=True)
-                i.check_permissions(full_repos_dir)
+    click.echo("Installing repositories ...".format(full_repos_dir))
+    if dev_repos:
+        os.chdir(full_repos_dir)
+        for nickname in dev_repos.split():
+            lib = REPOS_DICT.get(nickname, None)
+            if lib is None:
+                raise click.ClickException("Invalid repo nickname {}".format(nckname))
+            i.install_repo(lib)
 
-        click.echo("Installing repositories ...".format(full_repos_dir))
-        if dev_repos:
-            os.chdir(full_repos_dir)
-            for nickname in dev_repos.split():
-                lib = REPOS_DICT.get(nickname, None)
-                if lib is None:
-                    raise click.ClickException("Invalid repo nickname {}".format(nckname))
-                i.install_repo(lib)
-        # else:
-        #     i.run_in_env(envdir, "pip install lino")
-        #
-        # if dev and app.git_repo:
-        #     os.chdir(full_repos_dir)
-        #     if not os.path.exists(repo_nickname):
-        #         i.runcmd("git clone --depth 1 -b master {}".format(app.git_repo))
-        #         i.run_in_env(envdir, "pip install -e {}".format(repo_nickname))
-        # else:
-        #     i.run_in_env(envdir, "pip install {}".format(app_package))
+    for e in DB_ENGINES:
+        if DEFAULTSECTION.get('db_engine') == e.name:
+            i.run_in_env(envdir, "pip install {}".format(e.python_packages))
 
-        for e in DB_ENGINES:
-            if DEFAULTSECTION.get('db_engine') == e.name:
-                i.run_in_env(envdir, "pip install {}".format(e.python_packages))
 
-        i.batch = batch
-
+    if asroot:
         if USE_NGINX:
 
             if batch or click.confirm("Configure nginx", default=True):
@@ -284,7 +271,7 @@ sudo adduser `whoami` {0}"""
     i.setup_database(prjname, db_user, db_password, db_engine)
     i.run_in_env(envdir, "python manage.py prep --noinput")
 
-    if prod:
+    if asroot:
         i.run_in_env(envdir, "python manage.py collectstatic --noinput")
 
     i.finish()

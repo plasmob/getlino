@@ -19,6 +19,7 @@ USE_NGINX = True
 
 BATCH_HELP = "Whether to run in batch mode, i.e. without asking any questions.  "\
              "Don't use this on a machine that is already being used."
+ASROOT_HELP = "Also install system packages (requires root permissions)"
 
 
 # Note that the DbEngine.name field must match the Django engine name
@@ -65,8 +66,9 @@ DEFAULTSECTION = CONFIG[CONFIG.default_section]
 
 
 class Installer(object):
-    def __init__(self, batch=False):
+    def __init__(self, batch=False, asroot=False):
         self.batch = batch
+        self.asroot = asroot
         self._services = set()
         self._system_packages = set()
 
@@ -211,6 +213,13 @@ class Installer(object):
                     repo.package_name))
 
     def finish(self):
+        if not self.asroot:
+            if len(self._system_packages):
+                click.echo(
+                    "Warning: the following system packages were not installed : {}".format(
+                        ' '.join(list(self._system_packages))))
+            return
+
         self.run_apt_install()
         if len(self._services):
             msg = "Restart services {}".format(self._services)
