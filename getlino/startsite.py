@@ -239,13 +239,12 @@ sudo adduser `whoami` {0}"""
         for nickname in dev_repos.split():
             lib = REPOS_DICT.get(nickname, None)
             if lib is None:
-                raise click.ClickException("Invalid repo nickname {}".format(nckname))
+                raise click.ClickException("Invalid repo nickname {}".format(nickname))
             i.install_repo(lib)
 
     for e in DB_ENGINES:
         if DEFAULTSECTION.get('db_engine') == e.name:
             i.run_in_env(envdir, "pip install {}".format(e.python_packages))
-
 
     if asroot:
         if USE_NGINX:
