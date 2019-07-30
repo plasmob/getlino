@@ -6,32 +6,25 @@ FROM python:3.7
 # to the terminal with out buffering it first
 ENV PYTHONUNBUFFERED 1
 
-# create root directory for our project in the container
-RUN mkdir /getlino
+# Thanks to https://github.com/phusion/baseimage-docker/issues/58
+# ENV TERM=linux
 
-# Set the working directory to /getlino
-WORKDIR /getlino
+# Set for all apt-get install, must be at the very beginning of the Dockerfile.
+# Thanks to https://stackoverflow.com/questions/51023312/docker-having-issues-installing-apt-utils
+ENV DEBIAN_FRONTEND noninteractive
 
-ADD getlino.py /getlino/
-# For testing
-#COPY cookiecutter-startsite /usr/local/cookiecutter-startsite
+RUN apt-get update -y
+RUN apt-get install -y --no-install-recommends apt-utils
+RUN apt-get upgrade -y
+RUN pip3 install -e git+https://github.com/lino-framework/getlino.git#egg=getlino
 
-RUN apt-get update && apt-get install -y --no-install-recommends apt-utils
-
-# Install sudo package.
-RUN apt-get install sudo
-
-RUN adduser --disabled-password --gecos '' docker
-RUN adduser docker sudo
+# Install sudo package and create a user lino
+RUN apt-get install -y sudo
+RUN adduser --disabled-password --gecos '' lino
+RUN adduser lino sudo
 RUN echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
-USER docker
+USER lino
 
-# this is where I was running into problems with the other approaches
-RUN sudo apt-get update 
-
-#RUN pip3 install getlino
-RUN sudo pip3 install click argh virtualenv cookiecutter setuptools uwsgi
-RUN sudo python getlino.py getlino.py configure -n
-RUN sudo python getlino.py getlino.py setup -n
-RUN sudo python getlino.py startsite -n
+RUN sudo getlino configure --batch
+RUN sudo -H getlino startsite --batch noi mysite1
