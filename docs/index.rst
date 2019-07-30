@@ -16,6 +16,7 @@ Sitemap
 .. toctree::
    :maxdepth: 2
 
+   install
    usage
    api/index
    changes
