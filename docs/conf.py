@@ -15,10 +15,9 @@ extensions = []
 from atelier.sphinxconf import configure
 configure(globals())
 
-extensions += ['atelier.sphinxconf.complex_tables']
 extensions += ['sphinx.ext.autosummary']
 
-import atelier
+import getlino
 
 # primary_domain = 'py'
 
@@ -35,8 +34,8 @@ templates_path = ['.templates']
 master_doc = 'index'
 
 # General information about the project.
-project = u"atelier"
-copyright = '2002-2018 Rumam & Ko Ltd'
+project = "getlino"
+copyright = '2019 Rumam & Ko Ltd'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -45,7 +44,7 @@ copyright = '2002-2018 Rumam & Ko Ltd'
 
 # The full version, including alpha/beta/rc tags.
 #~ release = file(os.path.join(os.path.dirname(__file__),'..','VERSION')).read().strip()
-release = atelier.__version__
+release = getlino.__version__
 
 # The short X.Y version.
 version = '.'.join(release.split('.')[:2])
@@ -100,7 +99,7 @@ pygments_style = 'sphinx'
 
 # The name for this set of Sphinx documents.  If None, it defaults to
 # "<project> v<release> documentation".
-html_title = atelier.SETUP_INFO['name'] # u"DjangoSite"
+html_title = getlino.SETUP_INFO['name'] # u"DjangoSite"
 
 # A shorter title for the navigation bar.  Default is the same as html_title.
 #html_short_title = None
@@ -157,13 +156,13 @@ html_copy_source = False
 # contain a <link> tag referring to it.  The value of this option must be the
 # base URL from which the finished HTML is served.
 #html_use_opensearch = ''
-html_use_opensearch = 'http://atelier.saffre-rumma.net'
+html_use_opensearch = 'http://getlino.lino-framework.org'
 
 # If nonempty, this is the file name suffix for HTML files (e.g. ".xhtml").
 #html_file_suffix = ''
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = 'atelier'
+htmlhelp_basename = 'getlino'
 
 
 # Options for LaTeX output
@@ -203,13 +202,11 @@ htmlhelp_basename = 'atelier'
 #~ show_source = True
 
 #~ srcref_base_uri="http://code.google.com/lino"
-#~ srcref_base_uri="http://code.google.com/p/lino/source/browse/#hg" 
+#~ srcref_base_uri="http://code.google.com/p/lino/source/browse/#hg"
 
 
 extlinks = {
-  #~ 'issue': ('http://code.google.com/p/lino/issues/detail?id=%s', 'Issue '),
-  # 'checkin': ('http://code.google.com/p/python-atelier/source/detail?r=%s', 'Checkin '),
-  'srcref': (atelier.srcref_url, ''),
+  'srcref': (getlino.srcref_url, ''),
   'djangoticket': ('http://code.djangoproject.com/ticket/%s', 'Django ticket #'),
 }
 
