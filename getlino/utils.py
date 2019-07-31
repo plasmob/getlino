@@ -163,7 +163,7 @@ class Installer(object):
 
     def write_file(self, pth, content, **kwargs):
         if self.check_overwrite(pth):
-            with open(pth, 'w') as fd:
+            with open(pth, 'w+') as fd:
                 fd.write(content)
             with self.override_batch(True):
                 self.check_permissions(pth, **kwargs)
