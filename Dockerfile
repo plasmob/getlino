@@ -16,7 +16,7 @@ ENV DEBIAN_FRONTEND noninteractive
 RUN apt-get update -y
 RUN apt-get install -y --no-install-recommends apt-utils
 RUN apt-get upgrade -y
-RUN pip3 install -e git+https://github.com/lino-framework/getlino.git#egg=getlino
+RUN pip3 install -e git+https://github.com/plasmob/getlino.git#egg=getlino
 
 # Install sudo package and create a user lino
 RUN apt-get install -y sudo
